@@ -16,6 +16,7 @@ import com.blockparty.core.model.OfferingKind
 import com.blockparty.core.model.FurnitureType
 import com.blockparty.core.model.TagLibrary
 import com.blockparty.core.npc.ServicePhase
+import com.blockparty.core.world.WorldFactory
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import com.blockparty.app.ui.BlockPartyApp
@@ -211,6 +212,20 @@ class ScreenshotTest {
         assertTrue("someone was served with the scissors", sawService)
         assertTrue(vm.crowd.people.any { it.heldItem != null && it.seatedOn != null })
         snapshot("07_starter_interior")
+
+        // Keep the shop open until it has earned money and been reviewed.
+        val startCoins = 100L
+        for (i in 0 until 1200) {
+            val w = vm.world!!
+            if (w.coins > startCoins && w.lot(WorldFactory.HOME_LOT_ID)!!.business!!.reviews.isNotEmpty()) break
+            advance(250)
+        }
+        val business = vm.world!!.lot(WorldFactory.HOME_LOT_ID)!!.business!!
+        assertTrue("earned coins", vm.world!!.coins > startCoins)
+        assertEquals(vm.world!!.coins - startCoins, business.revenueTotal)
+        assertTrue(business.customersServed > 0 && business.itemsSold > 0)
+        assertTrue("reviewed", business.reviews.isNotEmpty() && business.rating != null)
+        snapshot("07b_after_sales")
         compose.runOnIdle { vm.navigate(Screen.DisplayEditor(table.id)) }
         advance(500)
         compose.onNodeWithText("On display").assertExists()

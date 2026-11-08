@@ -270,7 +270,9 @@ fun OfferingEditorScreen(vm: GameViewModel, world: WorldState) {
                     },
                     label = { Text("Price (coins)") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    supportingText = { Text("Any price you like. Customers will react to it.") },
+                    supportingText = {
+                        Text("Any price you like. Thrifty customers spend about 5–20, regulars 15–60, big spenders 50–200.")
+                    },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

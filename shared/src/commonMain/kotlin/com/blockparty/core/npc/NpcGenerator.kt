@@ -99,17 +99,3 @@ object NpcPool {
     }
 }
 
-/**
- * How likely a passing customer is to step into a shop. A stand-in until the customer
- * simulation (build stage 3) adds real tag matching, prices and sales: shared tags between the
- * customer and the shop or its offerings make a visit more likely.
- */
-object ShopAppeal {
-    fun visitChance(profile: NpcProfile, business: com.blockparty.core.model.Business?): Float {
-        if (business == null) return 0f
-        val shopTags = (business.tagIds + business.offerings.flatMap { it.tagIds }).toSet()
-        val shared = profile.tagIds.count { it in shopTags }
-        val base = if (business.offerings.isEmpty()) 0.12f else 0.22f
-        return (base + 0.14f * shared).coerceAtMost(0.75f)
-    }
-}

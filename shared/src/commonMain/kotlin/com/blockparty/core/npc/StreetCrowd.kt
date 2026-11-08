@@ -34,8 +34,12 @@ class ShopDoor(
     val browseSpots: List<TileXY> = emptyList(),
     /** Staff working here (the shopkeeper for now; employees later). They provide services. */
     val staffIds: List<String> = listOf(StreetCrowd.SHOPKEEPER_STAFF_ID),
-    /** Services on offer (offering ids); a customer at a station gets one of these. */
+    /** Services on offer (offering ids); used when there's no [catalog]. */
     val serviceIds: List<String> = emptyList(),
+    /** What the shop sells, prices and rating. Without it, visits are just for show. */
+    val catalog: ShopCatalog? = null,
+    /** Products shown on display pieces, by the tile customers stand on to look at them. */
+    val displayItems: Map<TileXY, List<String>> = emptyMap(),
 ) {
     /** Tile just inside the front wall, in the middle of the shop front. */
     val entryTile: TileXY get() = (lot.x + lot.w / 2) to (lot.bottom - 1)
@@ -114,9 +118,21 @@ class Pedestrian internal constructor(
     /** Furniture (placement id) the pedestrian is sitting on, if any. */
     var seatedOn: String? = null
         internal set
-    /** Offering whose drawing they're holding (e.g. during a service). */
+    /** Offering whose drawing they're holding (a product they picked, or a service item). */
     var heldItem: String? = null
         internal set
+
+    // What happened during the current shop visit (for paying and reviewing).
+    internal val cart = ArrayList<CatalogItem>()
+    internal val tooPricey = ArrayList<CatalogItem>()
+    internal var paid = false
+    internal var chosenService: CatalogItem? = null
+    internal var gotService = false
+    internal var waited = 0f
+    internal var queued = false
+    internal var reviewed = false
+    internal val spent: Long get() = cart.sumOf { it.price } + (if (gotService) chosenService?.price ?: 0L else 0L)
+    internal val remainingBudget: Long get() = profile.budgetCoins - cart.sumOf { it.price } - (chosenService?.price ?: 0L)
     val isWalking: Boolean get() = path.isNotEmpty() && pause <= 0f
 
     internal val path = ArrayDeque<Vec2>()
@@ -155,6 +171,16 @@ class StreetCrowd(private val random: Random = Random.Default) {
     private val _staff = ArrayList<StaffMember>()
     /** Staff in every shop (shopkeepers now, employees later). */
     val staff: List<StaffMember> get() = _staff
+
+    private val events = ArrayList<CrowdEvent>()
+
+    /** Sales and reviews since the last call. */
+    fun drainEvents(): List<CrowdEvent> {
+        if (events.isEmpty()) return emptyList()
+        val out = events.toList()
+        events.clear()
+        return out
+    }
 
     private val sessions = ArrayList<ServiceSession>()
     /** Services in progress, for drawing the item handover. */
@@ -197,6 +223,7 @@ class StreetCrowd(private val random: Random = Random.Default) {
             update(WARM_STEP, street, doors, pick)
             t += WARM_STEP
         }
+        events.clear() // warm-up is only for looks: no free sales or reviews
     }
 
     private fun spawn(street: Street, pick: (Random) -> NpcProfile?) {
@@ -219,6 +246,7 @@ class StreetCrowd(private val random: Random = Random.Default) {
     // --- Movement ------------------------------------------------------------------------------
 
     private fun step(p: Pedestrian, dt: Float, street: Street, doors: List<ShopDoor>) {
+        if (p.task == Task.QUEUED || (p.task == Task.SERVED && p.heldItem == null && !p.gotService)) p.waited += dt
         if (p.pause > 0f) {
             p.pause -= dt
             if (p.pause <= 0f) afterPause(p)
@@ -279,6 +307,7 @@ class StreetCrowd(private val random: Random = Random.Default) {
             if (random.nextFloat() >= door.visitChance(p.profile)) continue
             p.visiting = door
             p.task = Task.ENTERING
+            resetVisit(p)
             p.path.clear()
             p.path.add(Vec2(doorX, p.laneY))
             p.path.add(Wanderer.center(door.entryTile))
@@ -313,12 +342,16 @@ class StreetCrowd(private val random: Random = Random.Default) {
     private fun afterPause(p: Pedestrian) {
         val door = p.visiting ?: return leave(p)
         when (p.task) {
-            Task.BROWSING -> nextBrowse(p, door)
+            Task.BROWSING -> {
+                lookAtItems(p, door)
+                nextBrowse(p, door)
+            }
             Task.RESTING -> {
                 standUp(p)
                 nextBrowse(p, door)
             }
             Task.PAYING -> {
+                pay(p, door)
                 dequeue(p)
                 leave(p)
             }
@@ -333,8 +366,19 @@ class StreetCrowd(private val random: Random = Random.Default) {
 
     private fun startShopping(p: Pedestrian, door: ShopDoor) {
         val stations = door.usable(FurnitureType.SERVICE_STATION)
-        val wantsService = door.offersServices && stations.isNotEmpty() &&
+        val catalog = door.catalog
+        var wantsService = door.offersServices && stations.isNotEmpty() &&
             (door.servicesOnly || random.nextFloat() < SERVICE_SHARE)
+        if (wantsService && catalog != null) {
+            val service = CustomerBrain.chooseService(p.profile, catalog, p.remainingBudget, random)
+            if (service == null) {
+                // Every service is out of their budget.
+                p.tooPricey += catalog.services.minBy { it.price }
+                wantsService = false
+            } else {
+                p.chosenService = service
+            }
+        }
         if (wantsService) {
             joinQueue(p, door, stations)
         } else {
@@ -371,6 +415,11 @@ class StreetCrowd(private val random: Random = Random.Default) {
 
     private fun leave(p: Pedestrian) {
         val door = p.visiting
+        if (door != null && p.task != Task.LEAVING && p.task != Task.WALK) {
+            // Shops without a checkout take payment on the way out.
+            if (!p.paid && p.cart.isNotEmpty()) pay(p, door)
+            maybeReview(p, door)
+        }
         standUp(p)
         dequeue(p)
         p.task = Task.LEAVING
@@ -391,6 +440,7 @@ class StreetCrowd(private val random: Random = Random.Default) {
         p.task = Task.QUEUED
         p.queueFixture = fixture
         p.queueIndex = -1 // updateQueues sends them to their place
+        p.queued = true
     }
 
     private fun dequeue(p: Pedestrian) {
@@ -441,7 +491,7 @@ class StreetCrowd(private val random: Random = Random.Default) {
                 p.pause = 0f
                 sessions += ServiceSession(
                     door = door, station = f, customer = p,
-                    offeringId = door.serviceIds.randomOrNull(random),
+                    offeringId = p.chosenService?.id ?: door.serviceIds.randomOrNull(random),
                     duration = SERVICE_MIN_SEC + random.nextFloat() * (SERVICE_MAX_SEC - SERVICE_MIN_SEC),
                 )
             }
@@ -508,6 +558,68 @@ class StreetCrowd(private val random: Random = Random.Default) {
         p.queueFixture = newQueue
         p.seat = newSeat
         if (p.task == Task.QUEUED) p.queueIndex = -1 // re-place in the new layout
+    }
+
+    // --- Buying, paying and reviews -------------------------------------------------------------
+
+    private fun resetVisit(p: Pedestrian) {
+        p.cart.clear()
+        p.tooPricey.clear()
+        p.paid = false
+        p.chosenService = null
+        p.gotService = false
+        p.waited = 0f
+        p.queued = false
+        p.reviewed = false
+        p.heldItem = null
+    }
+
+    /**
+     * Looks at what's on display where they're standing (or, if the shop has no stocked
+     * displays, a few of its products) and maybe picks one up.
+     */
+    private fun lookAtItems(p: Pedestrian, door: ShopDoor) {
+        val catalog = door.catalog ?: return
+        if (p.cart.size >= MAX_CART) return
+        val here = door.displayItems[p.tile]
+        val candidates = when {
+            here != null -> here.mapNotNull { catalog.item(it) }
+            door.displayItems.isEmpty() -> catalog.products.shuffled(random).take(3)
+            else -> emptyList()
+        }.distinctBy { it.id }.shuffled(random)
+        for (item in candidates) {
+            if (item.price > p.remainingBudget) {
+                if (CustomerBrain.tagAffinity(p.profile, item.tags + catalog.shopTags) > 0f) p.tooPricey += item
+                continue
+            }
+            if (random.nextFloat() < CustomerBrain.buyChance(p.profile, item, catalog, p.remainingBudget)) {
+                p.cart += item
+                p.heldItem = item.id // carry it around the shop
+                return
+            }
+        }
+    }
+
+    private fun pay(p: Pedestrian, door: ShopDoor) {
+        if (p.paid || p.cart.isEmpty()) return
+        p.paid = true
+        events += CrowdEvent.Sale(door.lotId, p.profile, p.cart.toList(), p.cart.sumOf { it.price }, p.position)
+    }
+
+    private fun maybeReview(p: Pedestrian, door: ShopDoor) {
+        val catalog = door.catalog ?: return
+        if (p.reviewed) return
+        p.reviewed = true
+        val report = VisitReport(
+            profile = p.profile, catalog = catalog, bought = p.cart.toList(), tooPricey = p.tooPricey.distinctBy { it.id },
+            waitedSec = p.waited, queued = p.queued, gotService = p.gotService,
+        )
+        // Unhappy customers are a little more likely to speak up.
+        val stars = ReviewWriter.stars(report)
+        val chance = if (stars <= 2) REVIEW_CHANCE + 0.15f else REVIEW_CHANCE
+        events += CrowdEvent.Visit(door.lotId, p.profile, report.gotSomething)
+        if (random.nextFloat() >= chance) return
+        events += CrowdEvent.Review(door.lotId, p.profile, stars, ReviewWriter.write(report, stars, random), p.position)
     }
 
     // --- Staff and services --------------------------------------------------------------------
@@ -602,6 +714,10 @@ class StreetCrowd(private val random: Random = Random.Default) {
                         ServicePhase.HANDING_BACK -> { worker?.heldItem = s.offeringId; s.advance(ServicePhase.FINISHING) }
                         ServicePhase.FINISHING -> {
                             worker?.heldItem = null
+                            c.gotService = true
+                            c.chosenService?.let { service ->
+                                events += CrowdEvent.Sale(s.door.lotId, c.profile, listOf(service), service.price, c.position)
+                            }
                             finished += s
                             standUp(c)
                             dequeue(c)
@@ -620,6 +736,8 @@ class StreetCrowd(private val random: Random = Random.Default) {
     }
 
     companion object {
+        const val MAX_CART = 3
+        const val REVIEW_CHANCE = 0.4f
         const val SHOPKEEPER_STAFF_ID = "shopkeeper"
         const val STAFF_SPEED = 1.4f
         const val STAFF_IDLE_MIN_SEC = 1f

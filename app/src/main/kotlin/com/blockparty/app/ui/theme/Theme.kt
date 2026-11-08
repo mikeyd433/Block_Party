@@ -25,6 +25,8 @@ object Paper {
     val Accent = Color(0xFFE8735A)
     val Valid = Color(0xFF5DAA68)
     val Invalid = Color(0xFFD9534F)
+    val Coin = Color(0xFFD9A21B)
+    val Star = Color(0xFFE8A33D)
 }
 
 private val colors = lightColorScheme(

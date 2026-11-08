@@ -5,8 +5,8 @@ business can be anything the player wants. Nearly everything in the world is dra
 players and stands in the scene as a flat paper cutout. The full design is in
 [`docs/SPEC.md`](docs/SPEC.md).
 
-Build stages 1 and 2 are done: a single-player street prototype, now with drawn customers
-walking the street and a default starter set.
+Build stages 1–3 are done: a single-player street prototype with drawn customers who walk the
+street, shop by their tastes and budget, pay, and leave reviews.
 
 ## What works so far
 
@@ -47,6 +47,14 @@ walking the street and a default starter set.
   sidewalks, and some step into your shop, browse between free tiles and leave. Tap one to see
   who they are. Who goes in is a placeholder based on shared tags until stage 3 adds real
   matching, prices and sales.
+- **Customer simulation** (stage 3): who walks in depends on how well the shop's tags match
+  their tastes, how its prices compare with their budget, and its rating. Inside, they look at
+  products on display pieces (or a few products if there are no stocked displays), weigh tags
+  against price, and carry what they pick. They pay at a checkout (or on the way out), pay for
+  services when done, and some leave a 1–5 star review written from hand-authored phrases (tag
+  matches and misses, value for money, things they couldn't afford, queue time). Coins and the
+  shop's rating show in the top bar; tap it for stats and reviews. Staff hand the service's
+  drawing to the customer at service stations and take it back afterwards.
 - **Starter set**: a small hand-made set of customers, furniture (including 3D pieces) and
   storefronts is added to a new street so it isn't empty. Player-drawn customers gradually
   replace the starter crowd: after 6 drawn customers, starter customers stop appearing.
@@ -99,6 +107,5 @@ with Robolectric native graphics and writes PNGs to `app/build/screenshots/`.
 
 ## Next up (from the spec's build order)
 
-3. Customer simulation: tag matching, price response, sales, star ratings and templated reviews.
 4. Economy basics: rent, restocking, wages, debt with a grace period.
 5. Supabase backend: auth, shared streets, invite codes, offline catch-up.

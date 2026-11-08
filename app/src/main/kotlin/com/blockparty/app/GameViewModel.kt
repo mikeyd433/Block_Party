@@ -14,6 +14,8 @@ import com.blockparty.app.data.WorldRepository
 import com.blockparty.core.art.ImageOps
 import com.blockparty.app.data.StarterSet
 import com.blockparty.core.model.Business
+import com.blockparty.core.model.Review
+import com.blockparty.core.npc.CrowdEvent
 import com.blockparty.core.model.DisplaySpot
 import com.blockparty.core.model.FurnitureType
 import com.blockparty.core.sim.DisplayStock
@@ -172,6 +174,35 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // --- Player & business identity -----------------------------------------------------------
+
+    /** Records sales and reviews from the shops: coins, revenue, customers served and reputation. */
+    fun recordEvents(events: List<CrowdEvent>) {
+        if (events.isEmpty()) return
+        update { w ->
+            var out = w
+            for (e in events) {
+                out = when (e) {
+                    is CrowdEvent.Sale -> out.copy(coins = out.coins + e.total).updateLot(e.lotId) { lot ->
+                        lot.copy(business = lot.business?.let { b ->
+                            b.copy(
+                                revenueTotal = b.revenueTotal + e.total,
+                                customersServed = b.customersServed + 1,
+                                itemsSold = b.itemsSold + e.items.size,
+                            )
+                        })
+                    }
+                    is CrowdEvent.Review -> out.updateLot(e.lotId) { lot ->
+                        lot.copy(business = lot.business?.let { b ->
+                            val review = Review(newId(), e.customer.id, e.customer.name, e.stars, e.text, System.currentTimeMillis())
+                            b.copy(reviews = (listOf(review) + b.reviews).take(Business.MAX_REVIEWS))
+                        })
+                    }
+                    is CrowdEvent.Visit -> out
+                }
+            }
+            out
+        }
+    }
 
     fun setPlayerName(name: String) = update { it.copy(playerName = name) }
     fun setBusinessName(name: String) = updateBusiness { it.copy(name = name) }

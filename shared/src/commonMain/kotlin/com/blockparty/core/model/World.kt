@@ -162,6 +162,31 @@ data class Business(
     val offerings: List<Offering> = emptyList(),
     val facadeSpriteId: String? = null,
     val shopkeeperSpriteId: String? = null,
+    /** Most recent reviews first, capped at [MAX_REVIEWS]. */
+    val reviews: List<Review> = emptyList(),
+    val revenueTotal: Long = 0,
+    val customersServed: Int = 0,
+    val itemsSold: Int = 0,
+) {
+    /** Average stars of recent reviews (this business's reputation), or null before any. */
+    val rating: Float?
+        get() = reviews.take(RATING_WINDOW).takeIf { it.isNotEmpty() }?.map { it.stars }?.average()?.toFloat()
+
+    companion object {
+        const val MAX_REVIEWS = 60
+        const val RATING_WINDOW = 30
+    }
+}
+
+/** A customer's review: star rating plus text built from hand-written phrases. */
+@Serializable
+data class Review(
+    val id: String,
+    val npcId: String,
+    val npcName: String,
+    val stars: Int,
+    val text: String,
+    val atMillis: Long,
 )
 
 @Serializable
@@ -199,6 +224,8 @@ data class WorldState(
     val version: Int = CURRENT_VERSION,
     val playerName: String = "",
     val playerLevel: Int = 0,
+    /** The player's money on this street. */
+    val coins: Long = STARTING_COINS,
     val street: Street,
     val sprites: List<SpriteAsset> = emptyList(),
     /** The street's customer pool (player-drawn customers plus the starter set). */
@@ -215,5 +242,6 @@ data class WorldState(
 
     companion object {
         const val CURRENT_VERSION = 1
+        const val STARTING_COINS = 100L
     }
 }

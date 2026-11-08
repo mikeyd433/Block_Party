@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.MonetizationOn
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.OpenWith
@@ -50,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -79,7 +82,9 @@ import com.blockparty.core.geometry.Vec2
 import com.blockparty.core.model.LotState
 import com.blockparty.core.model.NpcProfile
 import com.blockparty.core.npc.NpcPool
-import com.blockparty.core.npc.ShopAppeal
+import com.blockparty.core.npc.CustomerBrain
+import com.blockparty.core.npc.ShopCatalog
+import com.blockparty.core.npc.CrowdEvent
 import com.blockparty.core.npc.ShopDoor
 import com.blockparty.core.npc.Fixture
 import com.blockparty.core.npc.Fixtures
@@ -114,6 +119,8 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
     var movingId by remember { mutableStateOf<String?>(null) }
     var showPicker by remember { mutableStateOf(false) }
     var showPeople by remember { mutableStateOf(false) }
+    var showStats by remember { mutableStateOf(false) }
+    val popups = remember { mutableStateListOf<Popup>() }
     var selectedNpc by remember { mutableStateOf<NpcProfile?>(null) }
     var flash by remember { mutableStateOf<Flash?>(null) }
     val effects = remember { mutableStateMapOf<String, Effect>() }
@@ -147,6 +154,16 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
             last = now
             time = (now - start) / 1e9f
             crowd.update(dt, world.street, latestDoors, latestPick)
+            val events = crowd.drainEvents()
+            if (events.isNotEmpty()) {
+                vm.recordEvents(events)
+                for (e in events) when (e) {
+                    is CrowdEvent.Sale -> popups += Popup("+${e.total}", Paper.Coin, e.at, time)
+                    is CrowdEvent.Review -> popups += Popup("★".repeat(e.stars) + "☆".repeat(5 - e.stars), Paper.Star, e.at, time, extraRise = 0.9f)
+                    is CrowdEvent.Visit -> Unit
+                }
+                popups.removeAll { time - it.startSec > Popup.DURATION_SEC }
+            }
         }
     }
 
@@ -297,6 +314,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
             translate(pan.x, pan.y) {
                 scale(zoom, pivot = Offset.Zero) {
                     drawStreet(sceneAt(time), textMeasurer)
+                    drawPopups(popups, time, iso, textMeasurer)
                 }
             }
         }
@@ -304,6 +322,9 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
         TopBar(
             title = homeLot.business?.name?.ifBlank { null } ?: "My Shop",
             subtitle = world.street.name + if (interior) " · inside" else "",
+            coins = world.coins,
+            rating = homeLot.business?.rating,
+            onClick = { showStats = true },
             modifier = Modifier.align(Alignment.TopCenter),
         )
 
@@ -399,6 +420,10 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
         }
     }
 
+    if (showStats) {
+        homeLot.business?.let { ShopStatsSheet(it, world.coins, onDismiss = { showStats = false }) }
+    }
+
     if (showPeople) {
         PeopleSheet(
             world = world,
@@ -442,16 +467,31 @@ private fun shopDoor(world: WorldState, lot: Lot, free: Set<Pair<Int, Int>>): Sh
     }
     val business = lot.business
     val services = business?.offerings.orEmpty().any { it.kind == OfferingKind.SERVICE }
+    val catalog = ShopCatalog.of(business)
+    // Products on display, by the tile customers stand on to look at them.
+    val productIds = business?.offerings.orEmpty().filter { it.kind == OfferingKind.PRODUCT }.map { it.id }.toSet()
+    val displayItems = HashMap<Pair<Int, Int>, MutableList<String>>()
+    for (piece in lot.furniture) {
+        val sprite = world.sprite(piece.spriteId) ?: continue
+        if (sprite.displaySpots.isEmpty()) continue
+        val stocked = sprite.displaySpots.mapNotNull { piece.stock[it.id] }.filter { it in productIds }
+        if (stocked.isEmpty()) continue
+        val rect = Placement.footprint(sprite, piece.x, piece.y, piece.flipped)
+        val access = Fixtures.accessTile(rect, free, entry) ?: continue
+        displayItems.getOrPut(access) { ArrayList() } += stocked
+    }
     return ShopDoor(
         lotId = lot.id,
         lot = lot.rect,
         freeTiles = free,
-        visitChance = { ShopAppeal.visitChance(it, business) },
+        visitChance = { CustomerBrain.visitChance(it, catalog) },
         fixtures = fixtures,
         offersServices = services,
         servicesOnly = services && business?.offerings.orEmpty().none { it.kind == OfferingKind.PRODUCT },
         browseSpots = browseSpots,
         serviceIds = business?.offerings.orEmpty().filter { it.kind == OfferingKind.SERVICE }.map { it.id },
+        catalog = catalog,
+        displayItems = displayItems,
     )
 }
 
@@ -462,8 +502,16 @@ private const val MAX_ZOOM = 4f
 private suspend fun withFrameNanosCompat(): Long = androidx.compose.runtime.withFrameNanos { it }
 
 @Composable
-private fun TopBar(title: String, subtitle: String, modifier: Modifier = Modifier) {
+private fun TopBar(
+    title: String,
+    subtitle: String,
+    coins: Long,
+    rating: Float?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Surface(
+        onClick = onClick,
         modifier = modifier
             .statusBarsPadding()
             .padding(12.dp),
@@ -474,8 +522,21 @@ private fun TopBar(title: String, subtitle: String, modifier: Modifier = Modifie
         Column(Modifier.padding(horizontal = 18.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.MonetizationOn, "Coins", Modifier.size(16.dp), tint = Paper.Coin)
+                    Spacer(Modifier.width(3.dp))
+                    Text("$coins", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Star, "Rating", Modifier.size(16.dp), tint = Paper.Star)
+                    Spacer(Modifier.width(3.dp))
+                    Text(rating?.let { "%.1f".format(it) } ?: "–", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
+
 }
 
 @Composable
