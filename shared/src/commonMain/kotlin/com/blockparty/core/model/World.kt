@@ -51,6 +51,11 @@ data class SpriteAsset(
     val role: CharacterRole = CharacterRole.NONE,
     /** Part of the default starter set that ships with the game, not drawn by a player. */
     val isStarter: Boolean = false,
+    /**
+     * Employee drawings: the drawer's choice of public (on the street's job board, hireable by
+     * anyone) or private (only the drawer can hire them).
+     */
+    val publicEmployee: Boolean = true,
     val artistName: String = "",
     /** Artist's choice: show their name when the drawing is tapped, or stay anonymous. */
     val showCredit: Boolean = true,

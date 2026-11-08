@@ -24,6 +24,9 @@ class StaffMember internal constructor(
     internal val path = ArrayDeque<Vec2>()
     internal var pause = 0f
     internal var door: ShopDoor? = null
+    /** Role and work modifiers (kept up to date from the shop). */
+    var spec: StaffSpec = StaffSpec(id, role = null)
+        internal set
     internal var session: ServiceSession? = null
 
     internal val tile: TileXY get() = position.x.toInt() to position.y.toInt()
@@ -60,7 +63,7 @@ internal class ServiceSession(
     val station: Fixture,
     val customer: Pedestrian,
     val offeringId: String?,
-    val duration: Float,
+    var duration: Float,
 ) {
     var staff: StaffMember? = null
     var phase = ServicePhase.WAITING_FOR_STAFF

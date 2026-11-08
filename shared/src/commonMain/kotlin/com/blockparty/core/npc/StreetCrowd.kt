@@ -1,6 +1,7 @@
 package com.blockparty.core.npc
 
 import com.blockparty.core.geometry.Vec2
+import com.blockparty.core.model.EmployeeRole
 import com.blockparty.core.model.FurnitureType
 import com.blockparty.core.model.GridRect
 import com.blockparty.core.model.NpcProfile
@@ -32,8 +33,8 @@ class ShopDoor(
     val servicesOnly: Boolean = false,
     /** Tiles next to display pieces; browsers head for these first. */
     val browseSpots: List<TileXY> = emptyList(),
-    /** Staff working here (the shopkeeper for now; employees later). They provide services. */
-    val staffIds: List<String> = listOf(StreetCrowd.SHOPKEEPER_STAFF_ID),
+    /** Staff working here: the shopkeeper plus employees, with how they work right now. */
+    val staff: List<StaffSpec> = listOf(StaffSpec(StreetCrowd.SHOPKEEPER_STAFF_ID, role = null)),
     /** Services on offer (offering ids); used when there's no [catalog]. */
     val serviceIds: List<String> = emptyList(),
     /** What the shop sells, prices and rating. Without it, visits are just for show. */
@@ -51,6 +52,26 @@ class ShopDoor(
         if (entryTile !in freeTiles) emptyList() else listOf(entryTile) + Fixtures.nearestTiles(entryTile, freeTiles, emptySet())
     }
     internal val reachableBrowseSpots: List<TileXY> by lazy { browseSpots.filter { it in reachable.toSet() } }
+
+    val staffIds: List<String> get() = staff.map { it.id }
+
+    /** Where a cashier stands: a free tile beside the first checkout that isn't where customers pay. */
+    internal val cashierPost: TileXY? by lazy {
+        val checkout = usable(FurnitureType.CHECKOUT).firstOrNull() ?: return@lazy null
+        val r = checkout.rect
+        val sides = buildList {
+            for (x in r.x until r.right) add(x to r.y - 1)
+            for (y in r.y until r.bottom) { add(r.right to y); add(r.x - 1 to y) }
+        }
+        val firstQueue = queueTiles[checkout.id]?.firstOrNull()
+        sides.firstOrNull { it in freeTiles && it != checkout.access && it != firstQueue && it in reachable.toSet() }
+    }
+
+    /** Where a greeter stands: beside the door, inside the shop. */
+    internal val greeterPost: TileXY? by lazy {
+        listOf(entryTile.first - 1 to entryTile.second, entryTile.first + 1 to entryTile.second)
+            .firstOrNull { it in freeTiles }
+    }
 
     /** Where people wait for [fixture]: free tiles nearest its access tile, in queue order. */
     internal val queueTiles: Map<String, List<TileXY>> by lazy {
@@ -132,6 +153,8 @@ class Pedestrian internal constructor(
     internal var queued = false
     internal var reviewed = false
     internal var foundEmpty = false
+    /** Star adjustment from staff who served or rang them up. */
+    internal var staffBonus = 0f
     internal val spent: Long get() = cart.sumOf { it.price } + (if (gotService) chosenService?.price ?: 0L else 0L)
     internal val remainingBudget: Long get() = profile.budgetCoins - cart.sumOf { it.price } - (chosenService?.price ?: 0L)
     val isWalking: Boolean get() = path.isNotEmpty() && pause <= 0f
@@ -499,6 +522,17 @@ class StreetCrowd(private val random: Random = Random.Default) {
             else -> {
                 p.task = Task.PAYING
                 p.pause = PAY_MIN_SEC + random.nextFloat() * (PAY_MAX_SEC - PAY_MIN_SEC)
+                // A cashier at their post rings customers up faster.
+                val door = p.visiting
+                val cashier = _staff.firstOrNull {
+                    door != null && it.lotId == door.lotId && it.spec.role == EmployeeRole.CASHIER &&
+                        it.path.isEmpty() && it.tile == door.cashierPost
+                }
+                if (cashier != null) {
+                    p.pause *= 0.5f * cashier.spec.workFactor
+                    p.staffBonus += cashier.spec.reviewBonus
+                    door?.let { d -> d.fixtures.firstOrNull { it.id == p.queueFixture?.id }?.let { cashier.faceTowards(rectCenter(it.rect)) } }
+                }
             }
         }
     }
@@ -574,6 +608,7 @@ class StreetCrowd(private val random: Random = Random.Default) {
         p.queued = false
         p.reviewed = false
         p.foundEmpty = false
+        p.staffBonus = 0f
         p.heldItem = null
     }
 
@@ -639,6 +674,7 @@ class StreetCrowd(private val random: Random = Random.Default) {
             waitedSec = p.waited, queued = p.queued, gotService = p.gotService,
             quality = if (got.isEmpty()) 0f else got.map { it.quality }.average().toFloat(),
             foundEmpty = p.foundEmpty,
+            staffBonus = p.staffBonus,
         )
         // Unhappy customers are a little more likely to speak up.
         val stars = ReviewWriter.stars(report)
@@ -652,17 +688,21 @@ class StreetCrowd(private val random: Random = Random.Default) {
 
     /** Makes sure every shop has its staff, and removes staff of shops that are gone. */
     private fun syncStaff(doors: List<ShopDoor>) {
-        _staff.removeAll { s -> doors.none { it.lotId == s.lotId && s.id in it.staffIds } }
+        val leaving = _staff.filter { s -> doors.none { it.lotId == s.lotId && s.id in it.staffIds } }
+        for (s in leaving) s.session?.let { it.staff = null; it.phase = ServicePhase.WAITING_FOR_STAFF }
+        _staff.removeAll(leaving)
         for (door in doors) {
-            for (id in door.staffIds) {
-                val existing = _staff.firstOrNull { it.lotId == door.lotId && it.id == id }
+            for (spec in door.staff) {
+                val existing = _staff.firstOrNull { it.lotId == door.lotId && it.id == spec.id }
                 if (existing != null) {
                     existing.door = door
+                    existing.spec = spec
                     continue
                 }
                 val start = door.reachable.randomOrNull(random) ?: door.entryTile
-                _staff += StaffMember(id, door.lotId, Wanderer.center(start)).also {
+                _staff += StaffMember(spec.id, door.lotId, Wanderer.center(start)).also {
                     it.door = door
+                    it.spec = spec
                     it.pause = random.nextFloat() * 2f
                 }
             }
@@ -673,15 +713,27 @@ class StreetCrowd(private val random: Random = Random.Default) {
         val door = s.door ?: return
         if (s.path.isEmpty()) {
             if (s.session != null) return // standing at the station, serving
+            // Cashiers and greeters keep to their posts; others stroll around.
+            val post = when (s.spec.role) {
+                EmployeeRole.CASHIER -> door.cashierPost
+                EmployeeRole.GREETER -> door.greeterPost
+                else -> null
+            }
+            if (post != null) {
+                if (s.tile != post) s.walkTo(post, door)
+                return
+            }
             s.pause -= dt
             if (s.pause > 0f) return
-            // Idle: stroll to another spot in the shop.
             s.pause = STAFF_IDLE_MIN_SEC + random.nextFloat() * (STAFF_IDLE_MAX_SEC - STAFF_IDLE_MIN_SEC)
-            val goal = door.reachable.randomOrNull(random) ?: return
+            // Stockers tend the display pieces; everyone else wanders.
+            val spots = door.reachableBrowseSpots
+            val goal = if (s.spec.role == EmployeeRole.STOCKER && spots.isNotEmpty()) spots[random.nextInt(spots.size)]
+            else door.reachable.randomOrNull(random) ?: return
             s.walkTo(goal, door)
             return
         }
-        var remaining = STAFF_SPEED * dt
+        var remaining = STAFF_SPEED * s.spec.walkFactor * dt
         while (remaining > 0f && s.path.isNotEmpty()) {
             val target = s.path.first()
             val delta = target - s.position
@@ -715,8 +767,12 @@ class StreetCrowd(private val random: Random = Random.Default) {
             }
             when (s.phase) {
                 ServicePhase.WAITING_FOR_STAFF -> {
-                    val worker = _staff.firstOrNull { it.lotId == s.door.lotId && it.session == null } ?: continue
+                    // Servers first, then the shopkeeper.
+                    val worker = _staff.filter { it.lotId == s.door.lotId && it.session == null && it.spec.canServe }
+                        .minByOrNull { if (it.spec.role == EmployeeRole.SERVER) 0 else 1 } ?: continue
                     worker.session = s
+                    s.duration *= worker.spec.workFactor
+                    c.staffBonus += worker.spec.reviewBonus
                     s.staff = worker
                     s.phase = ServicePhase.STAFF_WALKING
                     worker.walkTo(s.station.access ?: worker.tile, s.door)

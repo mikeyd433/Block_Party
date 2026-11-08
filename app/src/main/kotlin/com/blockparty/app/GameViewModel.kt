@@ -16,6 +16,8 @@ import com.blockparty.app.data.StarterSet
 import com.blockparty.core.model.Business
 import com.blockparty.core.model.Review
 import com.blockparty.core.npc.CrowdEvent
+import com.blockparty.core.npc.Applicant
+import com.blockparty.core.npc.Staffing
 import com.blockparty.core.model.DisplaySpot
 import com.blockparty.core.model.FurnitureType
 import com.blockparty.core.sim.DisplayStock
@@ -42,13 +44,14 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /** What a new drawing will be used for once it's saved. */
-enum class DrawPurpose { FURNITURE, FACADE, SHOPKEEPER, OFFERING, CUSTOMER }
+enum class DrawPurpose { FURNITURE, FACADE, SHOPKEEPER, OFFERING, CUSTOMER, EMPLOYEE }
 
 sealed interface Screen {
     data object Street : Screen
     data object ShopEditor : Screen
     data object OfferingEditor : Screen
     data class Draw(val kind: SpriteKind, val purpose: DrawPurpose) : Screen
+    data object JobBoard : Screen
     /** Display spots of a placed piece's drawing, and what this placed piece shows on them. */
     data class DisplayEditor(val placementId: String) : Screen
 }
@@ -152,6 +155,52 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
                 l.copy(business = l.business?.let { b ->
                     b.copy(offerings = b.offerings.map { if (it.id == offeringId) it.copy(stock = it.stock + units) else it })
                 })
+            }
+        }
+    }
+
+    // --- Employees ----------------------------------------------------------------------------
+
+    /** Today's job board (applicants not already working on this street). */
+    fun applicants(): List<Applicant> = world?.let { Staffing.applicants(it, today()) }.orEmpty()
+
+    /** Hires an applicant into the current shop. Returns an error message, or null on success. */
+    fun hire(applicant: Applicant): String? {
+        val business = currentLot?.business ?: return "Open a shop first."
+        if (business.employees.size >= Staffing.MAX_EMPLOYEES) return "A shop can have at most ${Staffing.MAX_EMPLOYEES} employees."
+        updateBusiness { it.copy(employees = it.employees + applicant.hire(today())) }
+        return null
+    }
+
+    fun fire(employeeId: String) = updateBusiness { b -> b.copy(employees = b.employees.filterNot { it.id == employeeId }) }
+
+    fun giveRaise(employeeId: String) = updateBusiness { b ->
+        b.copy(employees = b.employees.map { if (it.id == employeeId) Staffing.raise(it) else it })
+    }
+
+    /**
+     * Stockers top up products that are running low (below half their shelf space), paying the
+     * supplier. Clumsy ones sometimes drop a unit.
+     */
+    private fun stockersRestock(lotId: String) {
+        val w = world ?: return
+        val lot = w.lot(lotId) ?: return
+        val business = lot.business ?: return
+        val stockers = business.employees.filter { it.role == com.blockparty.core.model.EmployeeRole.STOCKER }
+        if (stockers.isEmpty()) return
+        val waste = stockers.maxOf { Staffing.wasteChance(it) }
+        for (o in business.offerings.filter { it.kind == OfferingKind.PRODUCT }) {
+            val cap = Economy.capacity(o, lot, w::sprite)
+            if (o.stock * 2 >= cap) continue
+            val (units, cost) = Economy.restockNeed(o, lot, w::sprite)
+            if (units <= 0 || (world?.coins ?: 0) < cost) continue
+            val dropped = if (kotlin.random.Random.nextFloat() < waste) 1 else 0
+            update { world ->
+                Economy.spendOnSupplies(world, today(), cost).updateLot(lotId) { l ->
+                    l.copy(business = l.business?.let { b ->
+                        b.copy(offerings = b.offerings.map { if (it.id == o.id) it.copy(stock = it.stock + units - dropped) else it })
+                    })
+                }
             }
         }
     }
@@ -324,6 +373,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
             }
             out
         }
+        events.filterIsInstance<CrowdEvent.Sale>().map { it.lotId }.distinct().forEach(::stockersRestock)
     }
 
     fun setPlayerName(name: String) = update { it.copy(playerName = name) }
@@ -382,6 +432,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
             role = when (purpose) {
                 DrawPurpose.CUSTOMER -> CharacterRole.CUSTOMER
                 DrawPurpose.SHOPKEEPER -> CharacterRole.SHOPKEEPER
+                DrawPurpose.EMPLOYEE -> CharacterRole.EMPLOYEE
                 else -> template.role
             },
             widthPx = bitmap.width,
@@ -402,7 +453,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
             DrawPurpose.FACADE -> updateBusiness { it.copy(facadeSpriteId = asset.id) }
             DrawPurpose.SHOPKEEPER -> updateBusiness { it.copy(shopkeeperSpriteId = asset.id) }
             DrawPurpose.OFFERING -> updateDraft { it.copy(spriteId = asset.id) }
-            DrawPurpose.CUSTOMER -> Unit
+            DrawPurpose.CUSTOMER, DrawPurpose.EMPLOYEE -> Unit
         }
     }
 

@@ -5,7 +5,7 @@ business can be anything the player wants. Nearly everything in the world is dra
 players and stands in the scene as a flat paper cutout. The full design is in
 [`docs/SPEC.md`](docs/SPEC.md).
 
-Build stages 1–4 and 6 are done: a single-player street prototype with drawn customers who walk the
+Build stages 1–4, 6 and 7 are done: a single-player street prototype with drawn customers who walk the
 street, shop by their tastes and budget, pay, and leave reviews, plus running costs and debt.
 
 ## What works so far
@@ -69,6 +69,14 @@ street, shop by their tastes and budget, pay, and leave reviews, plus running co
   Expand a shop into the lot next door (buying it, or folding in another shop you own): the two
   lots and the gap between become one bigger shop, with rent scaled by area. Stored furniture
   shows up first in the furniture picker.
+- **Employees** (stage 7): a daily job board (in the shop editor's Staff section) shows a few
+  applicants with a look (employee drawings: public ones anyone can hire, private ones only the
+  artist can), a role, one or two traits and a wage ask; rare applicants are better and pricier.
+  Cashiers stand at the checkout and ring people up faster, stockers top up low products
+  automatically, servers provide services alongside the shopkeeper, and greeters stand by the
+  door pulling in passers-by. Traits trade off speed, reviews, waste and time of day. Staff gain
+  levels, lose morale over time (a raise helps), quit when unhappy, and can be fired anytime.
+  Wages are part of the daily bill.
 - **Starter set**: a small hand-made set of customers, furniture (including 3D pieces) and
   storefronts is added to a new street so it isn't empty. Player-drawn customers gradually
   replace the starter crowd: after 6 drawn customers, starter customers stop appearing.

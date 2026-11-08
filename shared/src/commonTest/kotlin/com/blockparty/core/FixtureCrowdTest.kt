@@ -25,7 +25,7 @@ class FixtureCrowdTest {
     private val stationRect = GridRect(lot.x + 4, lot.y + 1, 1, 1)
     private val seatRects = listOf(GridRect(lot.x, lot.y + 4, 1, 1), GridRect(lot.x + 5, lot.y + 4, 1, 1))
 
-    private fun door(servicesOnly: Boolean = false): ShopDoor {
+    private fun door(servicesOnly: Boolean = false, staff: List<com.blockparty.core.npc.StaffSpec>? = null): ShopDoor {
         val blocked = (listOf(checkoutRect, stationRect) + seatRects)
         val free = buildSet {
             for (x in lot.x until lot.right) for (y in lot.y until lot.bottom) {
@@ -41,6 +41,7 @@ class FixtureCrowdTest {
             WorldFactory.HOME_LOT_ID, lot, free, { 0.9f }, fixtures,
             offersServices = true, servicesOnly = servicesOnly,
             serviceIds = listOf("haircut"),
+            staff = staff ?: listOf(com.blockparty.core.npc.StaffSpec(StreetCrowd.SHOPKEEPER_STAFF_ID, null)),
         )
     }
 
@@ -111,6 +112,36 @@ class FixtureCrowdTest {
             assertTrue(crowd.people.count { it.heldItem != null && it.seatedOn != null } <= 1)
         }
         assertTrue(staffHeld && customerHeld && sawHandOver && leftWithItem)
+    }
+
+    @Test
+    fun cashiersKeepToTheCheckoutAndServersDoTheServing() {
+        val staff = listOf(
+            com.blockparty.core.npc.StaffSpec(StreetCrowd.SHOPKEEPER_STAFF_ID, null),
+            com.blockparty.core.npc.StaffSpec("cash", com.blockparty.core.model.EmployeeRole.CASHIER),
+            com.blockparty.core.npc.StaffSpec("serve", com.blockparty.core.model.EmployeeRole.SERVER),
+            com.blockparty.core.npc.StaffSpec("greet", com.blockparty.core.model.EmployeeRole.GREETER),
+        )
+        val d = door(staff = staff)
+        val crowd = StreetCrowd(Random(8))
+        val servedBy = HashSet<String>()
+        var cashierAtPost = 0
+        repeat(6000) {
+            crowd.update(0.05f, street, listOf(d), pick)
+            val cashier = crowd.staff.first { it.id == "cash" }
+            if (!cashier.isWalking) {
+                val t = cashier.position.x.toInt() to cashier.position.y.toInt()
+                assertTrue(checkoutRect.let { r -> t.first in r.x - 1..r.right && t.second in r.y - 1..r.bottom }, "cashier wandered off to $t")
+                cashierAtPost++
+            }
+            crowd.services.mapNotNull { it.staff?.id }.forEach { servedBy += it }
+            val greeter = crowd.staff.first { it.id == "greet" }
+            if (!greeter.isWalking) assertEquals(d.entryTile.second, greeter.position.y.toInt())
+        }
+        assertEquals(4, crowd.staff.size)
+        assertTrue(cashierAtPost > 1000)
+        assertTrue("serve" in servedBy, "the server does services")
+        assertTrue("cash" !in servedBy && "greet" !in servedBy)
     }
 
     @Test

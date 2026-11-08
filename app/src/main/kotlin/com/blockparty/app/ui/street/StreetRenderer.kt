@@ -237,7 +237,7 @@ private fun DrawScope.drawDisplayed(item: CutoutItem) {
 /** Drawing used for a member of staff (the shopkeeper's drawing for now). */
 private fun StreetScene.staffSprite(member: StaffMember, lot: Lot): SpriteAsset? = when (member.id) {
     SHOPKEEPER_ID -> world.sprite(lot.business?.shopkeeperSpriteId)
-    else -> null
+    else -> world.sprite(lot.business?.employees?.firstOrNull { it.id == member.id }?.spriteId)
 }
 
 private fun StreetScene.offeringImage(lot: Lot, offeringId: String?): ImageBitmap? =

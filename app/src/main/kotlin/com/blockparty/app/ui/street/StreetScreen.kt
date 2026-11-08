@@ -84,6 +84,9 @@ import com.blockparty.core.model.NpcProfile
 import com.blockparty.core.npc.NpcPool
 import com.blockparty.core.npc.CustomerBrain
 import com.blockparty.core.npc.ShopCatalog
+import com.blockparty.core.npc.StaffSpec
+import com.blockparty.core.npc.Staffing
+import com.blockparty.core.npc.StreetCrowd
 import com.blockparty.core.sim.Economy
 import com.blockparty.core.sim.Lots
 import androidx.compose.material3.AlertDialog
@@ -137,9 +140,10 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
     val crowd = vm.crowd
     val candidates = remember(world.npcs, world.sprites) { NpcPool.weighted(world) }
     // Every open shop on the street can have customers.
-    val doors = remember(world.street.lots, world.sprites) {
+    val hour = remember(time.toInt() / 60) { java.time.LocalTime.now().hour }
+    val doors = remember(world.street.lots, world.sprites, hour) {
         world.street.lots.filter { it.state == LotState.OWNED && it.business != null }
-            .map { lot -> shopDoor(world, lot, Placement.freeTiles(lot, world::sprite)) }
+            .map { lot -> shopDoor(world, lot, Placement.freeTiles(lot, world::sprite), hour) }
     }
     val pick: (Random) -> NpcProfile? = { r -> NpcPool.choose(candidates, r) }
     val latestDoors by rememberUpdatedState(doors)
@@ -525,7 +529,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
 }
 
 /** The shop as customers see it: where they can walk, what furniture they use, what it sells. */
-private fun shopDoor(world: WorldState, lot: Lot, free: Set<Pair<Int, Int>>): ShopDoor {
+private fun shopDoor(world: WorldState, lot: Lot, free: Set<Pair<Int, Int>>, hour: Int): ShopDoor {
     val entry = (lot.rect.x + lot.rect.w / 2) to (lot.rect.bottom - 1)
     val fixtures = ArrayList<Fixture>()
     val browseSpots = ArrayList<Pair<Int, Int>>()
@@ -539,6 +543,8 @@ private fun shopDoor(world: WorldState, lot: Lot, free: Set<Pair<Int, Int>>): Sh
     val business = lot.business
     val services = business?.offerings.orEmpty().any { it.kind == OfferingKind.SERVICE }
     val catalog = ShopCatalog.of(business)
+    val employees = business?.employees.orEmpty()
+    val greeterBoost = Staffing.greeterBoost(employees)
     // Products on display, by the tile customers stand on to look at them.
     val productIds = business?.offerings.orEmpty().filter { it.kind == OfferingKind.PRODUCT }.map { it.id }.toSet()
     val displayItems = HashMap<Pair<Int, Int>, MutableList<String>>()
@@ -555,7 +561,8 @@ private fun shopDoor(world: WorldState, lot: Lot, free: Set<Pair<Int, Int>>): Sh
         lotId = lot.id,
         lot = lot.rect,
         freeTiles = free,
-        visitChance = { CustomerBrain.visitChance(it, catalog) },
+        visitChance = { (CustomerBrain.visitChance(it, catalog) * greeterBoost).coerceAtMost(0.9f) },
+        staff = listOf(StaffSpec(StreetCrowd.SHOPKEEPER_STAFF_ID, null)) + employees.map { Staffing.spec(it, hour) },
         fixtures = fixtures,
         offersServices = services,
         servicesOnly = services && business?.offerings.orEmpty().none { it.kind == OfferingKind.PRODUCT },

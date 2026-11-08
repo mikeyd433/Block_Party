@@ -40,5 +40,6 @@ fun BlockPartyApp(vm: GameViewModel = viewModel()) {
         Screen.OfferingEditor -> OfferingEditorScreen(vm, world)
         is Screen.Draw -> DrawingScreen(vm, world, screen.kind, screen.purpose)
         is Screen.DisplayEditor -> DisplayEditorScreen(vm, world, screen.placementId)
+        Screen.JobBoard -> com.blockparty.app.ui.shop.JobBoardScreen(vm, world)
     }
 }

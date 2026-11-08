@@ -24,7 +24,7 @@ import kotlin.random.Random
  */
 object StarterSet {
     /** Bump when the set changes; worlds with an older version get the new pieces added. */
-    const val VERSION = 3
+    const val VERSION = 4
     const val ARTIST = "Starter set"
 
     class Item(val asset: SpriteAsset, val bitmap: Bitmap)
@@ -51,6 +51,14 @@ object StarterSet {
             Person("customer-punk", "Mohawk", body = 0xFF2E2B26, skin = 0xFFE2B48A, hair = Hair.MOHAWK, hairColor = 0xFFF08A4B, extra = Extra.GLASSES),
         )
         for (p in customers) add(asset(p.id, SpriteKind.CHARACTER, p.name, person(p)) { copy(role = CharacterRole.CUSTOMER) })
+
+        // Employees (they wear aprons).
+        val staff = listOf(
+            Person("employee-green", "Green apron", body = 0xFF2F8F5B, skin = 0xFFE2B48A, hair = Hair.SHORT, hairColor = 0xFF2E2B26, extra = Extra.APRON),
+            Person("employee-red", "Red apron", body = 0xFFD9443A, skin = 0xFF8C5A3C, hair = Hair.BUN, hairColor = 0xFF2E2B26, extra = Extra.APRON),
+            Person("employee-blue", "Blue apron", body = 0xFF3D6FC4, skin = 0xFFF1C9A5, hair = Hair.BOB, hairColor = 0xFFB0602E, height = 0.95f, extra = Extra.APRON),
+        )
+        for (p in staff) add(asset(p.id, SpriteKind.CHARACTER, p.name, person(p)) { copy(role = CharacterRole.EMPLOYEE, publicEmployee = true) })
 
         // Furniture.
         add(turned("counter", "Counter", counterFront(), depth = 0.45f, footprint = 2 to 1).let {
@@ -128,7 +136,7 @@ object StarterSet {
     private const val PERSON_CANVAS_H = 500
 
     private enum class Hair { NONE, SHORT, BOB, LONG, BUN, MOHAWK }
-    private enum class Extra { NONE, HAT, BAG, CANE, BOOTS, GLASSES }
+    private enum class Extra { NONE, HAT, BAG, CANE, BOOTS, GLASSES, APRON }
 
     private class Person(
         val id: String, val name: String, val body: Long, val skin: Long, val hair: Hair, val hairColor: Long,
@@ -162,6 +170,12 @@ object StarterSet {
             val bodyRect = RectF(cx - 62f, bodyTop, cx + 62f, legTop + 20f)
             drawRoundRect(bodyRect, 46f, 46f, fill(p.body))
             drawRoundRect(bodyRect, 46f, 46f, ink)
+            if (p.extra == Extra.APRON) {
+                val apron = RectF(cx - 40f, bodyTop + 36f, cx + 40f, legTop + 18f)
+                drawRoundRect(apron, 14f, 14f, fill(0xFFFFFFFF))
+                drawRoundRect(apron, 14f, 14f, ink)
+                drawRect(cx - 18f, apron.centerY(), cx + 18f, apron.centerY() + 26f, fill(0xFFE6E1D6))
+            }
             // Arms.
             val arm = pen(p.body, 16f)
             wobbleLine(cx - 58f, bodyTop + 30f, cx - 84f, legTop - 10f, arm, 3)

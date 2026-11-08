@@ -187,6 +187,11 @@ fun ShopEditorScreen(vm: GameViewModel, world: WorldState) {
             }
             HorizontalDivider()
 
+            Section("Staff") {
+                StaffSection(vm, business.employees)
+            }
+            HorizontalDivider()
+
             Section("Shop space") {
                 Text(
                     "${lot.rect.w}×${lot.rect.h} tiles · rent ${Economy.rentPerDay(lot, world.street)}¢ a day",

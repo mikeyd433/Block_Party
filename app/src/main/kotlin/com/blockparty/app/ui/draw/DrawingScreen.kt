@@ -127,6 +127,7 @@ fun DrawingScreen(vm: GameViewModel, world: WorldState, kind: SpriteKind, purpos
     var facesRight by remember { mutableStateOf(true) }
     var footprint by remember { mutableStateOf(1 to 1) }
     var alignToGrid by remember { mutableStateOf(true) }
+    var publicEmployee by remember { mutableStateOf(true) }
     var signed by remember { mutableStateOf(world.playerName.isNotBlank()) }
     var confirmDiscard by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -210,6 +211,7 @@ fun DrawingScreen(vm: GameViewModel, world: WorldState, kind: SpriteKind, purpos
                 alignToGrid = alignToGrid && !state.isTurned,
                 groundX = groundX,
                 groundY = groundY,
+                publicEmployee = publicEmployee,
                 showCredit = signed,
             )
             vm.saveDrawing(result, template, purpose)
@@ -360,6 +362,23 @@ fun DrawingScreen(vm: GameViewModel, world: WorldState, kind: SpriteKind, purpos
                                 if (purpose == DrawPurpose.CUSTOMER) " They'll join the street's crowd, and the game decides what they like and how much they spend." else "",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        if (purpose == DrawPurpose.EMPLOYEE) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("Public employee")
+                                    Text(
+                                        if (publicEmployee) "Joins the street's job board: anyone can hire them."
+                                        else "Private: only you can hire them.",
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Switch(checked = publicEmployee, onCheckedChange = { publicEmployee = it })
+                            }
+                            Text(
+                                "Their role, traits and wage are decided by the game when they apply.",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     SpriteKind.FACADE -> Text(
                         "This panel covers the front wall of your shop. Leave parts empty to show the plain wall.",
@@ -518,6 +537,7 @@ private fun title(kind: SpriteKind, purpose: DrawPurpose) = when (purpose) {
     DrawPurpose.SHOPKEEPER -> "Draw your shopkeeper"
     DrawPurpose.OFFERING -> "Draw it"
     DrawPurpose.CUSTOMER -> "Draw a customer"
+    DrawPurpose.EMPLOYEE -> "Draw an employee"
 }
 
 private fun defaultName(kind: SpriteKind, purpose: DrawPurpose) = when (purpose) {
@@ -526,4 +546,5 @@ private fun defaultName(kind: SpriteKind, purpose: DrawPurpose) = when (purpose)
     DrawPurpose.SHOPKEEPER -> "Shopkeeper"
     DrawPurpose.OFFERING -> "Item"
     DrawPurpose.CUSTOMER -> "Customer"
+    DrawPurpose.EMPLOYEE -> "Employee"
 }

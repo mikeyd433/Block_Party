@@ -242,6 +242,25 @@ class ScreenshotTest {
         compose.onNodeWithText("On display").assertExists()
         snapshot("08_display_editor")
         compose.runOnIdle { vm.back() }
+        // Hire staff from today's job board.
+        val applicants = vm.applicants()
+        assertTrue("starter employees apply", applicants.size >= 2)
+        assertTrue(applicants.all { a -> vm.world!!.sprite(a.spriteId)?.role == com.blockparty.core.model.CharacterRole.EMPLOYEE })
+        compose.runOnIdle { vm.navigate(Screen.JobBoard) }
+        advance(500)
+        compose.onNodeWithText("Job board").assertExists()
+        snapshot("12_job_board")
+        compose.runOnIdle {
+            assertEquals(null, vm.hire(applicants[0]))
+            assertEquals(null, vm.hire(applicants[1]))
+            vm.back()
+        }
+        assertEquals(2, vm.currentLot!!.business!!.employees.size)
+        assertTrue("hired people leave the board", vm.applicants().none { it.id == applicants[0].id })
+        compose.onNodeWithText("Go inside").let { }
+        for (i in 0 until 8) advance(250)
+        assertEquals(3, vm.crowd.staff.count { it.lotId == vm.currentLot!!.id })
+        snapshot("13_with_staff")
         val chair = vm.currentLot!!.furniture.first { it.spriteId == "starter-salon-chair" }
         compose.runOnIdle { vm.navigate(Screen.DisplayEditor(chair.id)) }
         advance(500)

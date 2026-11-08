@@ -94,6 +94,9 @@ object Economy {
             rentTotal += rent
             wagesTotal += wages
             w = book(w.copy(coins = w.coins - rent - wages), day) { it.copy(rent = it.rent + rent, wages = it.wages + wages) }
+            val (staffed, staffNotices) = com.blockparty.core.npc.Staffing.dailyUpdate(w)
+            w = staffed
+            notices += staffNotices
 
             // Debt tracking: the grace period starts the first day coins are negative.
             val debtSince = w.economy.debtSinceDay
