@@ -5,6 +5,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import com.blockparty.app.ui.draw.DrawingExport
 import com.blockparty.app.ui.draw.DrawingState
+import com.blockparty.core.geometry.Facing
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -65,6 +66,31 @@ class DrawingExportTest {
         val out = DrawingExport.cropAndScale(state.rasterize(), maxDim = 512)!!
         assertTrue(out.width <= 512 && out.height <= 512)
         assertFalse(state.isEmpty)
+    }
+
+    @Test
+    fun addDepthTurnsAndExtrudesThenAllowsMoreDrawing() {
+        val state = DrawingState(1024, 1024)
+        state.color = Color.Red
+        state.brushWidth = 60f
+        // A filled-ish square front.
+        for (y in 300..700 step 40) state.line(Offset(300f, y.toFloat()), Offset(700f, y.toFloat()))
+        val flatStrokes = state.strokes.size
+        val turned = DrawingExport.addDepth(state.rasterize(), 0.5f, Facing.LEFT)!!
+        val bounds = DrawingExport.cropAndScale(turned, maxDim = 1024)!!
+        // Wider than tall-ish: front runs at an angle and depth adds to both directions.
+        assertTrue(bounds.width > 400)
+
+        state.applyTurned(turned)
+        assertTrue(state.isTurned)
+        assertEquals(0, state.strokes.size)
+        state.line(Offset(10f, 10f), Offset(40f, 40f)) // keep drawing on top
+        val withDetail = state.rasterize()
+        assertTrue(withDetail.getPixel(20, 20) ushr 24 > 0)
+
+        state.backToFlat()
+        assertFalse(state.isTurned)
+        assertEquals(flatStrokes, state.strokes.size)
     }
 
     @Test

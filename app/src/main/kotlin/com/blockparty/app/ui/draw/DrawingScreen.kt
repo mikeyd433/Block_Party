@@ -38,8 +38,12 @@ import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.ViewInAr
 import androidx.compose.material.icons.outlined.CleaningServices
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.Slider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -55,6 +59,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -83,6 +88,7 @@ import com.blockparty.app.DrawPurpose
 import com.blockparty.app.GameViewModel
 import com.blockparty.app.ui.common.Checkerboard
 import com.blockparty.app.ui.theme.Paper
+import com.blockparty.core.geometry.Facing
 import com.blockparty.core.geometry.IsoProjection
 import com.blockparty.core.geometry.Storefront
 import com.blockparty.core.model.SpriteAsset
@@ -124,6 +130,9 @@ fun DrawingScreen(vm: GameViewModel, world: WorldState, kind: SpriteKind, purpos
     var confirmDiscard by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    var depth by remember { mutableFloatStateOf(0.45f) }
+    var facing by remember { mutableStateOf(Facing.LEFT) }
+    var turning by remember { mutableStateOf(false) }
 
     val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) scope.launch {
@@ -139,7 +148,19 @@ fun DrawingScreen(vm: GameViewModel, world: WorldState, kind: SpriteKind, purpos
     }
 
     fun leave() {
-        if (state.strokes.isNotEmpty() || state.uploaded != null) confirmDiscard = true else vm.back()
+        if (state.strokes.isNotEmpty() || state.uploaded != null || state.isTurned) confirmDiscard = true else vm.back()
+    }
+
+    fun turn() {
+        if (turning) return
+        turning = true
+        scope.launch {
+            val result = withContext(Dispatchers.Default) {
+                DrawingExport.addDepth(state.rasterize(), depth, facing)
+            }
+            turning = false
+            if (result == null) message = "Draw the front first!" else state.applyTurned(result)
+        }
     }
     BackHandler(onBack = ::leave)
 
@@ -167,7 +188,8 @@ fun DrawingScreen(vm: GameViewModel, world: WorldState, kind: SpriteKind, purpos
                 facesRight = facesRight,
                 footprintW = footprint.first,
                 footprintH = footprint.second,
-                alignToGrid = alignToGrid,
+                // A turned drawing is already isometric, so it stands as an upright cutout.
+                alignToGrid = alignToGrid && !state.isTurned,
                 showCredit = signed,
             )
             vm.saveDrawing(result, template, purpose)
@@ -276,6 +298,15 @@ fun DrawingScreen(vm: GameViewModel, world: WorldState, kind: SpriteKind, purpos
 
                 when (kind) {
                     SpriteKind.FURNITURE -> {
+                        MakeItThreeD(
+                            state = state,
+                            depth = depth,
+                            onDepth = { depth = it },
+                            facing = facing,
+                            onFacing = { facing = it },
+                            busy = turning,
+                            onTurn = ::turn,
+                        )
                         Text("Floor space", style = MaterialTheme.typography.labelLarge)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             for (fp in footprints) {
@@ -285,7 +316,8 @@ fun DrawingScreen(vm: GameViewModel, world: WorldState, kind: SpriteKind, purpos
                                 )
                             }
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        // A turned drawing is already at the isometric angle.
+                        if (!state.isTurned) Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text("Angle to the floor grid")
                                 Text(
@@ -394,6 +426,56 @@ private fun DrawingCanvas(state: DrawingState, modifier: Modifier = Modifier) {
                     state.color, style = stroke(state.brushWidth),
                     blendMode = if (state.eraser) BlendMode.Clear else BlendMode.SrcOver,
                 )
+            }
+        }
+    }
+}
+
+/** "Add depth & turn": front view in, isometric extruded drawing out, then keep drawing. */
+@Composable
+private fun MakeItThreeD(
+    state: DrawingState,
+    depth: Float,
+    onDepth: (Float) -> Unit,
+    facing: Facing,
+    onFacing: (Facing) -> Unit,
+    busy: Boolean,
+    onTurn: () -> Unit,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.ViewInAr, null)
+                Spacer(Modifier.width(8.dp))
+                Text("Make it 3D", style = MaterialTheme.typography.titleSmall)
+            }
+            if (state.isTurned) {
+                Text(
+                    "Turned and given depth. Keep drawing to add details to the top and side.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedButton(onClick = state::backToFlat) { Text("Back to flat drawing") }
+                Text(
+                    "Going back drops anything drawn since the turn.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text(
+                    "Draw the front straight on, then turn it to the street's angle with depth added.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Depth", Modifier.width(56.dp))
+                    Slider(value = depth, onValueChange = onDepth, valueRange = 0.1f..1f, modifier = Modifier.weight(1f))
+                }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Faces", Modifier.width(56.dp))
+                    FilterChip(selected = facing == Facing.LEFT, onClick = { onFacing(Facing.LEFT) }, label = { Text("↙ Left") })
+                    FilterChip(selected = facing == Facing.RIGHT, onClick = { onFacing(Facing.RIGHT) }, label = { Text("Right ↘") })
+                }
+                Button(onClick = onTurn, enabled = !busy && !state.isEmpty) {
+                    Text(if (busy) "Turning…" else "Add depth & turn")
+                }
             }
         }
     }

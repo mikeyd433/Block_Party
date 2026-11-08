@@ -12,6 +12,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import com.blockparty.app.ui.BlockPartyApp
+import com.blockparty.app.ui.draw.DrawingExport
+import com.blockparty.core.geometry.Facing
 import com.blockparty.app.ui.theme.BlockPartyTheme
 import com.blockparty.core.model.SpriteAsset
 import com.blockparty.core.model.SpriteKind
@@ -78,8 +80,14 @@ class ScreenshotTest {
         vm.saveDrawing(SampleArt.plant(), template(SpriteKind.FURNITURE, "Plant"), DrawPurpose.FURNITURE)
         assertNotNull(vm.placeFurniture(lot.x + 4, lot.y + 1))
         assertNotNull(vm.placeFurniture(lot.x, lot.y + 4))
+        val crate = DrawingExport.addDepth(SampleArt.crateFront(), 0.6f, Facing.LEFT)!!
+        vm.saveDrawing(
+            DrawingExport.cropAndScale(crate)!!,
+            template(SpriteKind.FURNITURE, "Cake crate").copy(alignToGrid = false), DrawPurpose.FURNITURE,
+        )
+        assertNotNull(vm.placeFurniture(lot.x + 4, lot.y + 4))
         vm.startPlacing(null)
-        assertEquals(4, vm.homeLot!!.furniture.size)
+        assertEquals(5, vm.homeLot!!.furniture.size)
 
         compose.mainClock.autoAdvance = false // the street animates forever
         compose.setContent { BlockPartyTheme { BlockPartyApp(vm) } }
@@ -153,6 +161,13 @@ private object SampleArt {
         drawLine(100f, 200f, 145f, 70f, leaf)
         val pot = Path().apply { moveTo(50f, 190f); lineTo(150f, 190f); lineTo(135f, 290f); lineTo(65f, 290f); close() }
         drawPath(pot, pen(0xFFF08A4B.toInt(), fill = true))
+    }
+
+    fun crateFront() = canvas(1024, 1024) {
+        drawRect(362f, 412f, 662f, 662f, pen(0xFFE2B48A.toInt(), fill = true))
+        drawRect(362f, 412f, 662f, 662f, pen(0xFF8C5A3C.toInt(), 12f))
+        drawLine(362f, 537f, 662f, 537f, pen(0xFF8C5A3C.toInt(), 8f))
+        drawCircle(512f, 474f, 26f, pen(0xFFE58BB8.toInt(), fill = true))
     }
 
     fun facade() = canvas(1024, 457) {
