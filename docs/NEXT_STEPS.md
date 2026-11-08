@@ -9,17 +9,17 @@ empty). Book club tables stay in `public` for now. All apps share Supabase Auth 
 
 Keep in mind: database/storage/bandwidth limits and free-plan pausing are shared by all apps.
 
-## Block Party backend: not applied yet
+## Block Party backend: applied
 
-- The migration is ready at `supabase/migrations/20261108_block_party_core.sql`. It creates the
-  `block_party` schema (streets, members, player_state, lots, sprites), grants, row-level
-  security, game functions (create/join street, claim/close/merge lots, new invite, remove
-  member), the private `block-party-drawings` bucket and realtime.
-- Applying it through the Supabase connector timed out three times waiting for approval, so
-  **nothing has been created in the project yet.** Either run the file in the SQL editor, or
-  retry via the connector and approve the prompt quickly.
-- After applying: **Project Settings → Data API → Exposed schemas → add `block_party`.**
-- Then verify the tables, grants and policies, and check the security advisors.
+- `supabase/migrations/20261108_block_party_core.sql` was run in the SQL editor on 2026-11-08,
+  and `block_party` is listed under Exposed schemas. Verified afterwards: the tables (RLS on),
+  functions, policies, the private `block-party-drawings` bucket and realtime on lots, sprites
+  and members are all in place; `anon` has no access and `authenticated` has no TRUNCATE.
+- `supabase/migrations/20261108_block_party_fk_indexes.sql` adds two foreign-key indexes the
+  performance advisor asked for. Run it in the SQL editor too if it isn't applied yet.
+- Security advisor notes that are expected: the game's RPCs are SECURITY DEFINER functions that
+  signed-in players may call (each checks membership or ownership itself), and the "anonymous
+  access" warning only matters if anonymous sign-ins are turned on for the project.
 - This container's network policy blocks `*.supabase.co`, so the app can't be tested against
   the live backend from here (the phone is unaffected).
 

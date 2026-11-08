@@ -157,8 +157,8 @@ player leaves, is removed or deletes their account, their shops become vacant lo
 
 ## Status
 
-Paused before the backend: see [`docs/NEXT_STEPS.md`](docs/NEXT_STEPS.md). The shared database
-is set up, but the Block Party migration in `supabase/migrations/` hasn't been applied yet.
+The Block Party backend is live in the shared database. Next is the app side of stage 5
+(sign-in, shared streets and syncing): see [`docs/NEXT_STEPS.md`](docs/NEXT_STEPS.md).
 
 ## Next up (from the spec's build order)
 
