@@ -5,7 +5,8 @@ business can be anything the player wants. Nearly everything in the world is dra
 players and stands in the scene as a flat paper cutout. The full design is in
 [`docs/SPEC.md`](docs/SPEC.md).
 
-This is **build stage 1**: a single-player street prototype.
+Build stages 1 and 2 are done: a single-player street prototype, now with drawn customers
+walking the street and a default starter set.
 
 ## What works so far
 
@@ -28,6 +29,17 @@ This is **build stage 1**: a single-player street prototype.
   from the tag library (Mood / Price / Audience / Type / Time, with higher-level tags shown locked).
 - **Products and services** with a name, any price, tags and a drawn picture.
 - **Artist credit**: per drawing, choose to sign it with your artist name or stay anonymous.
+- **Make it 3D**: draw a piece of furniture straight on, then turn it to the street's angle with
+  adjustable thickness and keep drawing details on top. Drawings can also be leaned into the
+  floor grid as flat panels.
+- **Drawn customers** (stage 2): draw a customer and they join the street's NPC pool. The game
+  gives them a name, liked tags and a budget (players never choose these). Customers walk the
+  sidewalks, and some step into your shop, browse between free tiles and leave. Tap one to see
+  who they are. Who goes in is a placeholder based on shared tags until stage 3 adds real
+  matching, prices and sales.
+- **Starter set**: a small hand-made set of customers, furniture (including 3D pieces) and
+  storefronts is added to a new street so it isn't empty. Player-drawn customers gradually
+  replace the starter crowd: after 6 drawn customers, starter customers stop appearing.
 - Everything is saved locally (`world.json` plus a PNG per drawing).
 
 There is no LLM or AI-generated content anywhere. All behaviour comes from hand-written systems.
@@ -40,13 +52,14 @@ shared/   Pure Kotlin (Kotlin Multiplatform, JVM target for now). No Android dep
   core/model     World data (lots, businesses, offerings, sprites) and the tag library
   core/anim      ProceduralAnimator: walk / idle / hop / wobble poses for cutouts
   core/sim       Furniture placement rules, the wandering shopkeeper and pathfinding
+  core/npc       Customer profiles, the NPC pool and the street crowd simulation
   core/art       Image helpers: content bounds, background removal, cutout sizing
   core/world     New-world factory and JSON save format
 app/      Android app (Jetpack Compose)
   ui/street      Street canvas, renderer, cutout drawing, gestures, placement UI
   ui/draw        Drawing tool and PNG export
   ui/shop        Business and product/service editors
-  data/          Local persistence for the world and sprite PNGs
+  data/          Local persistence for the world and sprite PNGs, and the starter set art
 ```
 
 Game logic stays in `shared` so iOS targets can be added later (`iosArm64()` and so on in
@@ -76,7 +89,6 @@ with Robolectric native graphics and writes PNGs to `app/build/screenshots/`.
 
 ## Next up (from the spec's build order)
 
-2. Drawn customer NPCs walking the street, plus a default starter set of sprites.
 3. Customer simulation: tag matching, price response, sales, star ratings and templated reviews.
 4. Economy basics: rent, restocking, wages, debt with a grace period.
 5. Supabase backend: auth, shared streets, invite codes, offline catch-up.

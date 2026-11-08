@@ -151,6 +151,62 @@ object ImageOps {
         return (left + right) / 2f to (leftY + rightY) / 2f
     }
 
+    /**
+     * Copy of a drawing with its dark outline (dark pixels within [reach] of the transparent
+     * edge) recoloured with the nearest fill colour. Used for the sides of a 3D extrusion, which
+     * repeat the edge pixels and would otherwise come out as solid outline colour. A drawing
+     * with no light pixels at all is returned unchanged.
+     */
+    fun withoutOutline(pixels: IntArray, width: Int, height: Int, reach: Int = 14, darkLuma: Int = 80): IntArray {
+        val n = width * height
+        val out = pixels.copyOf()
+        fun opaque(i: Int) = alpha(pixels[i]) > 32
+        fun luma(c: Int) = (red(c) * 299 + green(c) * 587 + blue(c) * 114) / 1000
+
+        // Distance (4-connected steps) from the transparent outside, capped at reach + 1.
+        val dist = IntArray(n) { reach + 1 }
+        val queue = IntArray(n)
+        var head = 0
+        var tail = 0
+        for (i in 0 until n) if (!opaque(i)) { dist[i] = 0; queue[tail++] = i }
+        while (head < tail) {
+            val i = queue[head++]
+            val d = dist[i] + 1
+            if (d > reach) continue
+            val x = i % width
+            val y = i / width
+            if (x > 0 && dist[i - 1] > d) { dist[i - 1] = d; queue[tail++] = i - 1 }
+            if (x < width - 1 && dist[i + 1] > d) { dist[i + 1] = d; queue[tail++] = i + 1 }
+            if (y > 0 && dist[i - width] > d) { dist[i - width] = d; queue[tail++] = i - width }
+            if (y < height - 1 && dist[i + width] > d) { dist[i + width] = d; queue[tail++] = i + width }
+        }
+
+        // Outline pixels to recolour; everything else opaque is a colour source.
+        val outline = BooleanArray(n) { opaque(it) && dist[it] <= reach && luma(pixels[it]) < darkLuma }
+        val filled = BooleanArray(n)
+        head = 0
+        tail = 0
+        for (i in 0 until n) if (opaque(i) && !outline[i]) { filled[i] = true; queue[tail++] = i }
+        if (tail == 0) return out
+        while (head < tail) {
+            val i = queue[head++]
+            val x = i % width
+            val y = i / width
+            fun spread(j: Int) {
+                if (outline[j] && !filled[j]) {
+                    filled[j] = true
+                    out[j] = (pixels[j] and 0xFF000000.toInt()) or (out[i] and 0x00FFFFFF)
+                    queue[tail++] = j
+                }
+            }
+            if (x > 0) spread(i - 1)
+            if (x < width - 1) spread(i + 1)
+            if (y > 0) spread(i - width)
+            if (y < height - 1) spread(i + width)
+        }
+        return out
+    }
+
     /** Most common (coarsely quantised) opaque colour on the image border. */
     internal fun dominantBorderColor(pixels: IntArray, width: Int, height: Int): Int {
         val counts = HashMap<Int, Int>()

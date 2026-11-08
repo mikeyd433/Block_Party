@@ -74,6 +74,7 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 fun ShopEditorScreen(vm: GameViewModel, world: WorldState) {
     val lot = vm.homeLot ?: return
     val business = lot.business ?: Business(name = "My Shop")
+    var showFacadePicker by remember { mutableStateOf(false) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -152,6 +153,7 @@ fun ShopEditorScreen(vm: GameViewModel, world: WorldState) {
                     image = business.facadeSpriteId?.let { vm.sprites.images[it] },
                     hasDrawing = business.facadeSpriteId != null,
                     onDraw = { vm.navigate(Screen.Draw(SpriteKind.FACADE, DrawPurpose.FACADE)) },
+                    onPick = { showFacadePicker = true },
                     onClear = vm::clearFacade,
                     thumbnailAspect = facadeAspect,
                 )
@@ -174,6 +176,21 @@ fun ShopEditorScreen(vm: GameViewModel, world: WorldState) {
             }
             Spacer(Modifier.height(32.dp))
         }
+    }
+
+    if (showFacadePicker) {
+        SpritePickerSheet(
+            title = "Storefronts",
+            sprites = world.sprites.filter { it.kind == SpriteKind.FACADE },
+            vm = vm,
+            drawLabel = "Draw new storefront",
+            onDismiss = { showFacadePicker = false },
+            onPick = { vm.setFacade(it.id); showFacadePicker = false },
+            onDraw = {
+                showFacadePicker = false
+                vm.navigate(Screen.Draw(SpriteKind.FACADE, DrawPurpose.FACADE))
+            },
+        )
     }
 }
 

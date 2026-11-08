@@ -39,6 +39,7 @@ import com.blockparty.core.model.LotState
 import com.blockparty.core.model.WorldState
 import com.blockparty.core.sim.Placement
 import com.blockparty.core.sim.Wanderer
+import com.blockparty.core.npc.Pedestrian
 import kotlin.math.min
 
 enum class EffectType(val durationSec: Float) { HOP(0.55f), WOBBLE(0.6f) }
@@ -66,6 +67,7 @@ class StreetScene(
     val selectedId: String?,
     val freeTileHints: Set<Pair<Int, Int>>?,
     val flash: Flash?,
+    val crowd: List<Pedestrian> = emptyList(),
 ) {
     val storefront = Storefront(iso)
 
@@ -154,9 +156,37 @@ fun StreetScene.interiorCutouts(): List<CutoutItem> {
             shadow = ovalShadow(foot, w * 0.8f),
         )
     }
+    crowd.filter { it.insideLotId == lot.id }.mapNotNullTo(items) { pedestrianItem(it) }
     items.sortBy { it.depth }
     return items
 }
+
+fun npcEffectId(p: Pedestrian) = "npc:${p.id}"
+
+/** A customer on the street (or in a shop) as a positioned cutout. */
+fun StreetScene.pedestrianItem(p: Pedestrian): CutoutItem? {
+    val sprite = world.sprite(p.profile.spriteId) ?: return null
+    val image = images[sprite.id] ?: return null
+    val (w, h) = CutoutSizing.displaySize(sprite, iso)
+    val foot = iso.gridToScreen(p.position.x, p.position.y).toOffset()
+    val id = npcEffectId(p)
+    val base = if (p.isWalking) ProceduralAnimator.walk(p.distanceWalked, seed = p.id * 0.37f)
+    else ProceduralAnimator.idle(timeSec, seed = p.id * 1.3f)
+    return CutoutItem(
+        id = id,
+        image = image,
+        foot = foot,
+        size = Size(w, h),
+        pose = base + effectPose(id),
+        mirrored = p.facingRight != sprite.facesRight,
+        depth = p.position.x + p.position.y,
+        shadow = ovalShadow(foot, w * 0.8f),
+    )
+}
+
+/** Customers out on the street (not inside any shop), back to front. */
+fun StreetScene.outdoorCutouts(): List<CutoutItem> =
+    crowd.filter { it.insideLotId == null }.mapNotNull { pedestrianItem(it) }.sortedBy { it.depth }
 
 sealed interface Hit {
     data class Cutout(val id: String) : Hit
@@ -165,6 +195,7 @@ sealed interface Hit {
 
 /** What's under a point in world (unzoomed) coordinates. Front-most cutouts win. */
 fun StreetScene.hitTest(point: Offset): Hit {
+    outdoorCutouts().asReversed().firstOrNull { it.bounds.contains(point) }?.let { return Hit.Cutout(it.id) }
     interiorCutouts().asReversed().firstOrNull { it.bounds.contains(point) }
         ?.let { return Hit.Cutout(it.id) }
     val tile = iso.screenToTile(point.x, point.y)
@@ -221,6 +252,11 @@ fun DrawScope.drawStreet(scene: StreetScene, textMeasurer: TextMeasurer) {
             lot.id == scene.interiorLotId -> drawInterior(scene, lot)
             else -> drawBuilding(scene, lot, textMeasurer)
         }
+    }
+
+    // People on the sidewalks are always in front of the shops.
+    for (item in scene.outdoorCutouts()) {
+        drawCutout(item.image, item.foot, item.size, item.pose, item.mirrored, item.shadow)
     }
 
     scene.flash?.let { f ->

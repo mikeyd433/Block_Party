@@ -356,7 +356,8 @@ fun DrawingScreen(vm: GameViewModel, world: WorldState, kind: SpriteKind, purpos
                             FilterChip(selected = facesRight, onClick = { facesRight = true }, label = { Text("Right →") })
                         }
                         Text(
-                            "Characters flip automatically to face where they walk.",
+                            "Characters flip automatically to face where they walk." +
+                                if (purpose == DrawPurpose.CUSTOMER) " They'll join the street's crowd, and the game decides what they like and how much they spend." else "",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -516,11 +517,13 @@ private fun title(kind: SpriteKind, purpose: DrawPurpose) = when (purpose) {
     DrawPurpose.FACADE -> "Draw your storefront"
     DrawPurpose.SHOPKEEPER -> "Draw your shopkeeper"
     DrawPurpose.OFFERING -> "Draw it"
-}.let { if (kind == SpriteKind.CHARACTER && purpose != DrawPurpose.SHOPKEEPER) "Draw a character" else it }
+    DrawPurpose.CUSTOMER -> "Draw a customer"
+}
 
 private fun defaultName(kind: SpriteKind, purpose: DrawPurpose) = when (purpose) {
     DrawPurpose.FURNITURE -> "Furniture"
     DrawPurpose.FACADE -> "Storefront"
     DrawPurpose.SHOPKEEPER -> "Shopkeeper"
     DrawPurpose.OFFERING -> "Item"
-}.let { if (kind == SpriteKind.PRODUCT && purpose != DrawPurpose.OFFERING) "Item" else it }
+    DrawPurpose.CUSTOMER -> "Customer"
+}

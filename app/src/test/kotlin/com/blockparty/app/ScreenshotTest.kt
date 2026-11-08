@@ -9,6 +9,9 @@ import android.graphics.RectF
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import com.blockparty.app.data.StarterSet
+import com.blockparty.core.model.CharacterRole
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import com.blockparty.app.ui.BlockPartyApp
@@ -61,8 +64,11 @@ class ScreenshotTest {
     private fun newViewModel(): GameViewModel {
         val vm = GameViewModel(ApplicationProvider.getApplicationContext<Application>())
         ShadowLooper.idleMainLooper()
-        repeat(50) { if (vm.world == null) { Thread.sleep(20); ShadowLooper.idleMainLooper() } }
+        repeat(200) {
+            if ((vm.world?.starterSetVersion ?: 0) < StarterSet.VERSION) { Thread.sleep(20); ShadowLooper.idleMainLooper() }
+        }
         assertNotNull("world loads", vm.world)
+        assertEquals("starter set installed", StarterSet.VERSION, vm.world!!.starterSetVersion)
         return vm
     }
 
@@ -96,10 +102,14 @@ class ScreenshotTest {
         vm.startPlacing(null)
         assertEquals(5, vm.homeLot!!.furniture.size)
 
+        vm.saveDrawing(SampleArt.person(), template(SpriteKind.CHARACTER, "Sam's customer"), DrawPurpose.CUSTOMER)
+
         compose.mainClock.autoAdvance = false // the street animates forever
         compose.setContent { BlockPartyTheme { BlockPartyApp(vm) } }
         advance(500)
+        assertTrue("crowd is out", vm.crowd.people.isNotEmpty())
         snapshot("01_street")
+
 
         compose.onNodeWithText("Go inside").performClick()
         advance(1500)
@@ -108,6 +118,57 @@ class ScreenshotTest {
         compose.onNodeWithText("Furniture").performClick()
         advance(800)
         compose.onNodeWithText("Draw new furniture").assertExists() // sheet is its own window
+    }
+
+    @Test
+    fun starterSetAndDrawnCustomers() {
+        val vm = newViewModel()
+        val world = vm.world!!
+        val starterCustomers = world.sprites.filter { it.isStarter && it.role == CharacterRole.CUSTOMER }
+        assertEquals(6, starterCustomers.size)
+        assertEquals(6, world.npcs.size)
+        assertTrue(world.sprites.count { it.isStarter && it.kind == SpriteKind.FURNITURE } >= 5)
+        assertEquals(2, world.sprites.count { it.isStarter && it.kind == SpriteKind.FACADE })
+        assertTrue(world.sprites.filter { it.isStarter }.all { vm.sprites.images[it.id] != null })
+
+        vm.saveDrawing(SampleArt.person(), template(SpriteKind.CHARACTER, "Drawn customer"), DrawPurpose.CUSTOMER)
+        val drawn = vm.world!!.sprites.first { it.name == "Drawn customer" }
+        assertEquals(CharacterRole.CUSTOMER, drawn.role)
+        val profile = vm.world!!.npcs.first { it.spriteId == drawn.id }
+        assertTrue(profile.tagIds.isNotEmpty() && profile.budgetCoins > 0)
+        vm.deleteSprite(drawn.id)
+        assertTrue(vm.world!!.npcs.none { it.spriteId == drawn.id })
+
+        // Starter plant and lamp are plain upright drawings and must not be "fixed" as boxes.
+        assertEquals(1f, vm.world!!.sprite("starter-plant")!!.groundY)
+        assertEquals(1f, vm.world!!.sprite("starter-lamp")!!.groundY)
+    }
+
+    @Test
+    fun starterShop() {
+        val vm = newViewModel()
+        vm.setBusinessName("Starter Store")
+        vm.setFacade("starter-facade-awning")
+        val lot = vm.homeLot!!.rect
+        for ((id, x, y) in listOf(
+            Triple("starter-bookshelf", lot.x + 1, lot.y),
+            Triple("starter-counter", lot.x + 3, lot.y + 2),
+            Triple("starter-plant", lot.x, lot.y + 4),
+            Triple("starter-lamp", lot.x + 5, lot.y),
+            Triple("starter-stool", lot.x + 3, lot.y + 4),
+            Triple("starter-display", lot.x + 1, lot.y + 3),
+        )) {
+            vm.startPlacing(id)
+            assertNotNull(id, vm.placeFurniture(x, y))
+        }
+        vm.startPlacing(null)
+        compose.mainClock.autoAdvance = false
+        compose.setContent { BlockPartyTheme { BlockPartyApp(vm) } }
+        advance(500)
+        snapshot("06_starter_street")
+        compose.onNodeWithText("Go inside").performClick()
+        advance(1500)
+        snapshot("07_starter_interior")
     }
 
     @Test
@@ -139,6 +200,9 @@ class ScreenshotTest {
         compose.mainClock.autoAdvance = false
         compose.setContent { BlockPartyTheme { BlockPartyApp(vm) } }
         advance(300)
+        compose.onNodeWithContentDescription("Street people").performClick()
+        advance(800)
+        compose.onNodeWithText("Draw a customer").assertExists()
         compose.runOnIdle { vm.navigate(Screen.ShopEditor) }
         advance(300)
         compose.onNodeWithText("Your shop").assertExists()

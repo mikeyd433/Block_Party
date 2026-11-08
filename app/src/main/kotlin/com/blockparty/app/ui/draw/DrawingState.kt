@@ -258,6 +258,14 @@ object DrawingExport {
             // Fit for the thickest setting so the front doesn't move when thickness changes.
             fitDepthFraction = MAX_DEPTH,
         )
+        // Sides repeat the edge pixels, so build them from a copy without the dark outline.
+        val sideSource = run {
+            val w = front.width
+            val h = front.height
+            val pixels = IntArray(w * h).also { front.getPixels(it, 0, w, 0, 0, w, h) }
+            val cleaned = ImageOps.withoutOutline(pixels, w, h)
+            Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).apply { setPixels(cleaned, 0, w, 0, 0, w, h) }
+        }
         val out = Bitmap.createBitmap(flat.width, flat.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
         val m = layout.front
@@ -275,7 +283,7 @@ object DrawingExport {
             matrix.setValues(
                 floatArrayOf(m.a, m.c, m.tx + layout.depth.x * t, m.b, m.d, m.ty + layout.depth.y * t, 0f, 0f, 1f)
             )
-            canvas.drawBitmap(front, matrix, if (i == steps) backPaint else sidePaint)
+            canvas.drawBitmap(sideSource, matrix, if (i == steps) backPaint else sidePaint)
         }
         matrix.setValues(floatArrayOf(m.a, m.c, m.tx, m.b, m.d, m.ty, 0f, 0f, 1f))
         canvas.drawBitmap(front, matrix, Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))

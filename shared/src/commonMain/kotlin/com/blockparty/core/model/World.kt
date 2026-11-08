@@ -38,10 +38,31 @@ data class SpriteAsset(
      */
     val groundX: Float = 0.5f,
     val groundY: Float = 1f,
+    /** Characters only: what the character is for. */
+    val role: CharacterRole = CharacterRole.NONE,
+    /** Part of the default starter set that ships with the game, not drawn by a player. */
+    val isStarter: Boolean = false,
     val artistName: String = "",
     /** Artist's choice: show their name when the drawing is tapped, or stay anonymous. */
     val showCredit: Boolean = true,
     val createdAtMillis: Long = 0L,
+)
+
+@Serializable
+enum class CharacterRole { NONE, SHOPKEEPER, CUSTOMER, EMPLOYEE }
+
+/**
+ * A customer in the street's NPC pool. The look is a player drawing (or a starter sprite);
+ * the name, tastes and budget are assigned by the game, never by the drawer.
+ */
+@Serializable
+data class NpcProfile(
+    val id: String,
+    val spriteId: String,
+    val name: String,
+    val tagIds: List<String>,
+    val budgetCoins: Long,
+    val walkSpeed: Float,
 )
 
 /** Rectangle on the street grid, in tiles. */
@@ -139,6 +160,10 @@ data class WorldState(
     val playerLevel: Int = 0,
     val street: Street,
     val sprites: List<SpriteAsset> = emptyList(),
+    /** The street's customer pool (player-drawn customers plus the starter set). */
+    val npcs: List<NpcProfile> = emptyList(),
+    /** Version of the default starter set already added to this world. */
+    val starterSetVersion: Int = 0,
 ) {
     fun sprite(id: String?): SpriteAsset? = id?.let { sid -> sprites.firstOrNull { it.id == sid } }
 

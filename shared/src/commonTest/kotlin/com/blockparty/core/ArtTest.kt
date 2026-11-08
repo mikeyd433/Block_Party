@@ -50,6 +50,29 @@ class ArtTest {
     }
 
     @Test
+    fun outlineTakesTheFillColour() {
+        // 20x20: transparent border, 2px black outline, tan fill.
+        val w = 20
+        val black = 0xFF000000.toInt()
+        val tan = 0xFFE2B48A.toInt()
+        val px = IntArray(w * w) { i ->
+            val x = i % w; val y = i / w
+            when {
+                x < 2 || y < 2 || x > 17 || y > 17 -> 0
+                x < 4 || y < 4 || x > 15 || y > 15 -> black
+                else -> tan
+            }
+        }
+        val out = ImageOps.withoutOutline(px, w, w, reach = 4)
+        assertEquals(tan, out[2 * w + 10], "outline recoloured")
+        assertEquals(0, out[0], "transparent stays transparent")
+        assertEquals(tan, out[10 * w + 10])
+        // All-black drawing is left alone.
+        val allBlack = IntArray(16) { black }
+        assertEquals(black, ImageOps.withoutOutline(allBlack, 4, 4)[5])
+    }
+
+    @Test
     fun strokeThinningKeepsEndpoints() {
         val pts = (0..100).map { Vec2(it * 0.1f, 0f) }
         val thin = StrokeOps.thin(pts, 1f)

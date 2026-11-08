@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Flip
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Storefront
@@ -75,6 +76,11 @@ import com.blockparty.app.ui.theme.Paper
 import com.blockparty.core.geometry.IsoProjection
 import com.blockparty.core.geometry.Vec2
 import com.blockparty.core.model.LotState
+import com.blockparty.core.model.NpcProfile
+import com.blockparty.core.npc.NpcPool
+import com.blockparty.core.npc.ShopAppeal
+import com.blockparty.core.npc.ShopDoor
+import kotlin.random.Random
 import com.blockparty.core.model.SpriteAsset
 import com.blockparty.core.model.SpriteKind
 import com.blockparty.core.model.WorldState
@@ -102,6 +108,8 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
     var selectedId by remember { mutableStateOf<String?>(null) }
     var movingId by remember { mutableStateOf<String?>(null) }
     var showPicker by remember { mutableStateOf(false) }
+    var showPeople by remember { mutableStateOf(false) }
+    var selectedNpc by remember { mutableStateOf<NpcProfile?>(null) }
     var flash by remember { mutableStateOf<Flash?>(null) }
     val effects = remember { mutableStateMapOf<String, Effect>() }
     var time by remember { mutableFloatStateOf(0f) }
@@ -112,6 +120,21 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
     }
     val latestFree by rememberUpdatedState(freeTiles)
     val isInterior by rememberUpdatedState(interior)
+
+    // Customers: who can appear, and which shops they might walk into.
+    val crowd = vm.crowd
+    val candidates = remember(world.npcs, world.sprites) { NpcPool.weighted(world) }
+    val doors = remember(homeLot, freeTiles) {
+        listOf(ShopDoor(homeLot.id, homeLot.rect, freeTiles) { ShopAppeal.visitChance(it, homeLot.business) })
+    }
+    val pick: (Random) -> NpcProfile? = { r -> NpcPool.choose(candidates, r) }
+    val latestDoors by rememberUpdatedState(doors)
+    val latestPick by rememberUpdatedState(pick)
+    if (!vm.crowdWarmedUp) {
+        // Start with a lively street rather than an empty one.
+        crowd.warmUp(25f, world.street, doors, pick)
+        vm.crowdWarmedUp = true
+    }
 
     // Placing new furniture always happens inside the shop.
     val placing = vm.placingSpriteId
@@ -126,6 +149,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
             last = now
             time = (now - start) / 1e9f
             if (isInterior) wanderer.update(dt, latestFree)
+            crowd.update(dt, world.street, latestDoors, latestPick)
         }
     }
 
@@ -142,6 +166,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
         selectedId = selectedId,
         freeTileHints = if (placing != null || movingId != null) freeTiles else null,
         flash = flash,
+        crowd = crowd.people,
     )
     val scene = sceneAt(0f) // time-independent queries: bounds for camera and taps
 
@@ -184,9 +209,20 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
         return (tx - (r.w - 1) / 2) to (ty - (r.h - 1) / 2)
     }
 
+    fun selectPerson(effectId: String): Boolean {
+        val person = crowd.people.firstOrNull { npcEffectId(it) == effectId } ?: return false
+        trigger(effectId, EffectType.HOP)
+        selectedId = effectId
+        selectedNpc = person.profile
+        return true
+    }
+
     val onTap by rememberUpdatedState { pos: Offset ->
         val p = (pos - pan) / zoom
-        if (!interior) {
+        val tappedPerson = (sceneAt(time).hitTest(p) as? Hit.Cutout)?.id?.takeIf { it.startsWith("npc:") }
+        if (placing == null && movingId == null && tappedPerson != null && selectPerson(tappedPerson)) {
+            // Tapped a customer.
+        } else if (!interior) {
             val tile = iso.screenToTile(p.x, p.y)
             val lot = world.street.lots.firstOrNull { it.rect.contains(tile.x, tile.y) }
             when {
@@ -224,6 +260,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                         selectedId = hit.id
                     }
                     is Hit.Tile -> {
+                        selectedNpc = null
                         if (selectedId == null && !homeLot.rect.contains(hit.x, hit.y) &&
                             !scene.lotBounds(homeLot).contains(p)
                         ) exitToStreet() else selectedId = null
@@ -326,6 +363,13 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                         }
                     }
                 }
+                selectedId?.startsWith("npc:") == true && selectedNpc != null -> {
+                    val npc = selectedNpc!!
+                    val sprite = world.sprite(npc.spriteId)
+                    SelectionCard(sprite = sprite, vm = vm, title = npc.name, onClose = { selectedId = null; selectedNpc = null }) {
+                        CustomerDetails(npc)
+                    }
+                }
                 selectedId == SHOPKEEPER_ID && keeperSprite != null ->
                     SelectionCard(sprite = keeperSprite, vm = vm, onClose = { selectedId = null }) {}
                 interior -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -339,16 +383,31 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                         Icon(Icons.Default.Edit, null); Spacer(Modifier.width(6.dp)); Text("Shop", maxLines = 1)
                     }
                 }
-                else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FilledTonalIconButton(onClick = { showPeople = true }, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.Groups, "Street people")
+                    }
                     Button(onClick = ::enterShop) {
                         Icon(Icons.Default.Storefront, null); Spacer(Modifier.width(6.dp)); Text("Go inside")
                     }
                     FilledTonalButton(onClick = { vm.navigate(Screen.ShopEditor) }) {
-                        Icon(Icons.Default.Edit, null); Spacer(Modifier.width(6.dp)); Text("Edit shop")
+                        Icon(Icons.Default.Edit, null); Spacer(Modifier.width(6.dp)); Text("Edit shop", maxLines = 1)
                     }
                 }
             }
         }
+    }
+
+    if (showPeople) {
+        PeopleSheet(
+            world = world,
+            vm = vm,
+            onDismiss = { showPeople = false },
+            onDraw = {
+                showPeople = false
+                vm.navigate(Screen.Draw(SpriteKind.CHARACTER, DrawPurpose.CUSTOMER))
+            },
+        )
     }
 
     if (showPicker) {
@@ -409,6 +468,7 @@ private fun SelectionCard(
     sprite: SpriteAsset?,
     vm: GameViewModel,
     onClose: () -> Unit,
+    title: String? = null,
     actions: @Composable () -> Unit,
 ) {
     Card(Modifier.fillMaxWidth()) {
@@ -417,7 +477,7 @@ private fun SelectionCard(
                 if (sprite != null) SpriteThumbnail(vm.sprites.images[sprite.id], Modifier.size(48.dp))
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(sprite?.name?.ifBlank { null } ?: "Untitled", style = MaterialTheme.typography.titleSmall)
+                    Text(title ?: sprite?.name?.ifBlank { null } ?: "Untitled", style = MaterialTheme.typography.titleSmall)
                     Text(
                         creditLine(sprite),
                         style = MaterialTheme.typography.bodySmall,

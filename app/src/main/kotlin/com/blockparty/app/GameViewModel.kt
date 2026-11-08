@@ -12,7 +12,11 @@ import androidx.lifecycle.viewModelScope
 import com.blockparty.app.data.SpriteStore
 import com.blockparty.app.data.WorldRepository
 import com.blockparty.core.art.ImageOps
+import com.blockparty.app.data.StarterSet
 import com.blockparty.core.model.Business
+import com.blockparty.core.model.CharacterRole
+import com.blockparty.core.npc.NpcGenerator
+import com.blockparty.core.npc.StreetCrowd
 import com.blockparty.core.model.FurniturePlacement
 import com.blockparty.core.model.Lot
 import com.blockparty.core.model.Offering
@@ -30,7 +34,7 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /** What a new drawing will be used for once it's saved. */
-enum class DrawPurpose { FURNITURE, FACADE, SHOPKEEPER, OFFERING }
+enum class DrawPurpose { FURNITURE, FACADE, SHOPKEEPER, OFFERING, CUSTOMER }
 
 sealed interface Screen {
     data object Street : Screen
@@ -60,6 +64,10 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
 
     private val saveRequests = Channel<WorldState>(Channel.CONFLATED)
 
+    /** Customers walking the street. Lives here so it survives trips to the editors. */
+    val crowd = StreetCrowd()
+    var crowdWarmedUp = false
+
     init {
         viewModelScope.launch {
             val loaded = withContext(Dispatchers.IO) { repository.load() }
@@ -68,6 +76,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
                 loaded.sprites.mapNotNull { s -> sprites.decode(s.id)?.let { s.id to it } }
             }
             sprites.images.putAll(decoded)
+            ensureStarterSet()
             fixFloatingBoxes()
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -76,6 +85,26 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     val homeLot: Lot? get() = world?.lot(WorldFactory.HOME_LOT_ID)
+
+    /** Adds the default starter sprites (and starter customers) the first time a world loads. */
+    private suspend fun ensureStarterSet() {
+        val current = world ?: return
+        if (current.starterSetVersion >= StarterSet.VERSION) return
+        val lotWidth = homeLot?.rect?.w ?: WorldFactory.LOT_WIDTH
+        val items = withContext(Dispatchers.Default) { StarterSet.generate(lotWidth) }
+        val existing = current.sprites.map { it.id }.toSet()
+        val added = items.filter { it.asset.id !in existing }
+        withContext(Dispatchers.IO) { added.forEach { sprites.writeFile(it.asset.id, it.bitmap) } }
+        added.forEach { sprites.images[it.asset.id] = it.bitmap.asImageBitmap() }
+        update { w ->
+            val newSprites = added.map { it.asset }
+            val npcIds = w.npcs.map { it.spriteId }.toSet()
+            val newNpcs = newSprites
+                .filter { it.role == CharacterRole.CUSTOMER && it.id !in npcIds }
+                .map { NpcGenerator.profile("npc-${it.id}", it.id, w.playerLevel) }
+            w.copy(sprites = w.sprites + newSprites, npcs = w.npcs + newNpcs, starterSetVersion = StarterSet.VERSION)
+        }
+    }
 
     /**
      * Furniture turned into 3D before base points were recorded still rests on the bottom of its
@@ -132,6 +161,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     fun setBusinessDescription(text: String) = updateBusiness { it.copy(description = text) }
     fun setBusinessMode(mode: com.blockparty.core.model.BusinessMode) = updateBusiness { it.copy(mode = mode) }
     fun toggleBusinessTag(tagId: String) = updateBusiness { it.copy(tagIds = it.tagIds.toggle(tagId)) }
+    fun setFacade(spriteId: String) = updateBusiness { it.copy(facadeSpriteId = spriteId) }
     fun clearFacade() = updateBusiness { it.copy(facadeSpriteId = null) }
     fun clearShopkeeper() = updateBusiness { it.copy(shopkeeperSpriteId = null) }
 
@@ -179,6 +209,11 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     fun saveDrawing(bitmap: Bitmap, template: SpriteAsset, purpose: DrawPurpose) {
         val asset = template.copy(
             id = newId(),
+            role = when (purpose) {
+                DrawPurpose.CUSTOMER -> CharacterRole.CUSTOMER
+                DrawPurpose.SHOPKEEPER -> CharacterRole.SHOPKEEPER
+                else -> template.role
+            },
             widthPx = bitmap.width,
             heightPx = bitmap.height,
             artistName = world?.playerName.orEmpty(),
@@ -186,13 +221,18 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         )
         sprites.images[asset.id] = bitmap.asImageBitmap()
         viewModelScope.launch(Dispatchers.IO) { sprites.writeFile(asset.id, bitmap) }
-        update { it.copy(sprites = it.sprites + asset) }
+        update { w ->
+            // Customers join the street's NPC pool; the game picks their tastes and budget.
+            val npcs = if (purpose == DrawPurpose.CUSTOMER) w.npcs + NpcGenerator.profile("npc-${asset.id}", asset.id, w.playerLevel) else w.npcs
+            w.copy(sprites = w.sprites + asset, npcs = npcs)
+        }
         back()
         when (purpose) {
             DrawPurpose.FURNITURE -> placingSpriteId = asset.id
             DrawPurpose.FACADE -> updateBusiness { it.copy(facadeSpriteId = asset.id) }
             DrawPurpose.SHOPKEEPER -> updateBusiness { it.copy(shopkeeperSpriteId = asset.id) }
             DrawPurpose.OFFERING -> updateDraft { it.copy(spriteId = asset.id) }
+            DrawPurpose.CUSTOMER -> Unit
         }
     }
 
@@ -200,6 +240,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         update { w ->
             w.copy(
                 sprites = w.sprites.filterNot { it.id == id },
+                npcs = w.npcs.filterNot { it.spriteId == id },
                 street = w.street.copy(lots = w.street.lots.map { lot ->
                     lot.copy(
                         furniture = lot.furniture.filterNot { it.spriteId == id },
