@@ -39,6 +39,8 @@ object DepthProjection {
      * enlarging the drawing.
      *
      * @param depthFraction depth as a fraction of the drawing's width.
+     * @param fitDepthFraction depth used to fit the canvas. Fitting to the largest depth the user
+     * can pick keeps the front face fixed while the depth is adjusted.
      */
     fun layout(
         imageW: Float,
@@ -48,12 +50,14 @@ object DepthProjection {
         canvasW: Float,
         canvasH: Float,
         margin: Float = 0.06f,
+        fitDepthFraction: Float = depthFraction,
     ): DepthLayout {
         val u = frontDirection(facing)
+        val fitDepth = depthDirection(facing) * (max(fitDepthFraction, depthFraction) * imageW)
         val depth = depthDirection(facing) * (depthFraction * imageW)
         val down = Vec2(0f, imageH)
         val front = listOf(Vec2.Zero, u * imageW, down, u * imageW + down)
-        val points = front + front.map { it + depth }
+        val points = front + front.map { it + fitDepth }
         val minX = points.minOf { it.x }
         val maxX = points.maxOf { it.x }
         val minY = points.minOf { it.y }

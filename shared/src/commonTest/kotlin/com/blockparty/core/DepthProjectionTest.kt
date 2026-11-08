@@ -38,6 +38,14 @@ class DepthProjectionTest {
     }
 
     @Test
+    fun frontStaysPutWhileDepthChanges() {
+        val thin = DepthProjection.layout(600f, 400f, 0.1f, Facing.LEFT, 1024f, 1024f, fitDepthFraction = 1f)
+        val thick = DepthProjection.layout(600f, 400f, 1f, Facing.LEFT, 1024f, 1024f, fitDepthFraction = 1f)
+        assertTrue(thin.front == thick.front)
+        assertTrue(thick.depth.x > thin.depth.x * 9.9f)
+    }
+
+    @Test
     fun neverEnlargesSmallDrawings() {
         val l = DepthProjection.layout(50f, 50f, 0.5f, Facing.LEFT, 1024f, 1024f)
         assertTrue(abs(l.front.d - 1f) < 1e-6f)

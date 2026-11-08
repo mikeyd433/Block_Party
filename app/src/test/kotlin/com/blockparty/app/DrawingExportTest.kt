@@ -81,12 +81,19 @@ class DrawingExportTest {
         // Wider than tall-ish: front runs at an angle and depth adds to both directions.
         assertTrue(bounds.width > 400)
 
-        state.applyTurned(turned)
+        state.applyTurned(turned, state.rasterize())
         assertTrue(state.isTurned)
         assertEquals(0, state.strokes.size)
         state.line(Offset(10f, 10f), Offset(40f, 40f)) // keep drawing on top
         val withDetail = state.rasterize()
         assertTrue(withDetail.getPixel(20, 20) ushr 24 > 0)
+
+        // Changing thickness swaps the turned layer but keeps the detail strokes.
+        val thicker = DrawingExport.addDepth(state.flatRender!!, 1f, Facing.LEFT)!!
+        state.replaceTurned(thicker)
+        assertEquals(1, state.strokes.size)
+        val thickBounds = DrawingExport.cropAndScale(thicker, maxDim = 1024)!!
+        assertTrue(thickBounds.width > bounds.width)
 
         state.backToFlat()
         assertFalse(state.isTurned)

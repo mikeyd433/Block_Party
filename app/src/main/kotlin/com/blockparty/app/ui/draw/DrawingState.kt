@@ -78,6 +78,10 @@ class DrawingState(val width: Int, val height: Int) {
         private set
     private var flatSnapshot: Snapshot? = null
 
+    /** The flat drawing as rendered when it was turned; thickness changes re-extrude from it. */
+    var flatRender: Bitmap? = null
+        private set
+
     val isTurned: Boolean get() = baked != null
 
     val baseImage: Bitmap?
@@ -126,15 +130,22 @@ class DrawingState(val width: Int, val height: Int) {
         uploadedCutout = null
         baked = null
         flatSnapshot = null
+        flatRender = null
     }
 
     /** Replaces the flat drawing with its turned, extruded version and starts a fresh stroke layer. */
-    fun applyTurned(result: Bitmap) {
+    fun applyTurned(result: Bitmap, flat: Bitmap) {
         flatSnapshot = Snapshot(strokes.toList(), uploaded, uploadedCutout, removeBackground)
+        flatRender = flat
         baked = result
         strokes.clear()
         redoStack.clear()
         current.clear()
+    }
+
+    /** Swaps in a re-extruded version (new thickness), keeping the detail strokes drawn on top. */
+    fun replaceTurned(result: Bitmap) {
+        if (baked != null) baked = result
     }
 
     /** Restores the flat drawing from before the turn, dropping anything drawn since. */
@@ -229,6 +240,8 @@ object DrawingExport {
         val layout = DepthProjection.layout(
             front.width.toFloat(), front.height.toFloat(), depthFraction, facing,
             flat.width.toFloat(), flat.height.toFloat(),
+            // Fit for the thickest setting so the front doesn't move when thickness changes.
+            fitDepthFraction = MAX_DEPTH,
         )
         val out = Bitmap.createBitmap(flat.width, flat.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(out)
@@ -253,6 +266,9 @@ object DrawingExport {
         canvas.drawBitmap(front, matrix, Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
         return out
     }
+
+    const val MIN_DEPTH = 0.1f
+    const val MAX_DEPTH = 1f
 
     private const val SIDE_SHADE = 0.74f
     private const val BACK_SHADE = 0.62f

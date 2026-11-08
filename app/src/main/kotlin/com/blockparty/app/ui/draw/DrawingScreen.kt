@@ -95,6 +95,7 @@ import com.blockparty.core.model.SpriteAsset
 import com.blockparty.core.model.SpriteKind
 import com.blockparty.core.model.WorldState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -155,12 +156,20 @@ fun DrawingScreen(vm: GameViewModel, world: WorldState, kind: SpriteKind, purpos
         if (turning) return
         turning = true
         scope.launch {
-            val result = withContext(Dispatchers.Default) {
-                DrawingExport.addDepth(state.rasterize(), depth, facing)
-            }
+            val flat = withContext(Dispatchers.Default) { state.rasterize() }
+            val result = withContext(Dispatchers.Default) { DrawingExport.addDepth(flat, depth, facing) }
             turning = false
-            if (result == null) message = "Draw the front first!" else state.applyTurned(result)
+            if (result == null) message = "Draw the front first!" else state.applyTurned(result, flat)
         }
+    }
+
+    // Live thickness changes after turning: re-extrude from the flat drawing. A newer slider
+    // value restarts this effect, so stale renders are dropped.
+    LaunchedEffect(depth, state.isTurned) {
+        val flat = state.flatRender ?: return@LaunchedEffect
+        delay(40)
+        val result = withContext(Dispatchers.Default) { DrawingExport.addDepth(flat, depth, facing) }
+        if (result != null) state.replaceTurned(result)
     }
     BackHandler(onBack = ::leave)
 
@@ -454,6 +463,7 @@ private fun MakeItThreeD(
                     "Turned and given depth. Keep drawing to add details to the top and side.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                ThicknessSlider(depth, onDepth)
                 OutlinedButton(onClick = state::backToFlat) { Text("Back to flat drawing") }
                 Text(
                     "Going back drops anything drawn since the turn.",
@@ -464,12 +474,9 @@ private fun MakeItThreeD(
                     "Draw the front straight on, then turn it to the street's angle with depth added.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Depth", Modifier.width(56.dp))
-                    Slider(value = depth, onValueChange = onDepth, valueRange = 0.1f..1f, modifier = Modifier.weight(1f))
-                }
+                ThicknessSlider(depth, onDepth)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Faces", Modifier.width(56.dp))
+                    Text("Faces", Modifier.width(80.dp))
                     FilterChip(selected = facing == Facing.LEFT, onClick = { onFacing(Facing.LEFT) }, label = { Text("↙ Left") })
                     FilterChip(selected = facing == Facing.RIGHT, onClick = { onFacing(Facing.RIGHT) }, label = { Text("Right ↘") })
                 }
@@ -478,6 +485,18 @@ private fun MakeItThreeD(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ThicknessSlider(depth: Float, onDepth: (Float) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Thickness", Modifier.width(80.dp))
+        Slider(
+            value = depth, onValueChange = onDepth,
+            valueRange = DrawingExport.MIN_DEPTH..DrawingExport.MAX_DEPTH,
+            modifier = Modifier.weight(1f),
+        )
     }
 }
 
