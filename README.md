@@ -5,8 +5,8 @@ business can be anything the player wants. Nearly everything in the world is dra
 players and stands in the scene as a flat paper cutout. The full design is in
 [`docs/SPEC.md`](docs/SPEC.md).
 
-Build stages 1–4, 6 and 7 are done, and stage 5 has started (accounts, creating and joining
-shared streets): a single-player street prototype with drawn customers who walk the
+Build stages 1–4, 6 and 7 are done, and most of stage 5 (accounts, and playing together on shared
+streets): a single-player street prototype with drawn customers who walk the
 street, shop by their tastes and budget, pay, and leave reviews, plus running costs and debt.
 
 ## What works so far
@@ -81,13 +81,21 @@ street, shop by their tastes and budget, pay, and leave reviews, plus running co
 - **Starter set**: a small hand-made set of customers, furniture (including 3D pieces) and
   storefronts is added to a new street so it isn't empty. Player-drawn customers gradually
   replace the starter crowd: after 6 drawn customers, starter customers stop appearing.
-- Everything is saved locally (`world.json` plus a PNG per drawing).
-- **Accounts and shared streets** (stage 5, first part): tap the globe on the street to open
-  **Streets**. Sign in or create an account (email and password; the account is shared with the
-  other apps on the same Supabase project, and your name comes from your shared profile). Then
-  create a street (you're its admin and get a 6-character invite code to share or copy), join a
-  friend's street with their code, see who's on each street, make a new code (admin), or leave.
-  Playing on a shared street together (synced lots and drawings) comes next.
+- Everything is saved locally (`world.json`, `streets/<user>/<street>.json` per shared street, plus a
+  PNG per drawing).
+- **Accounts and shared streets** (stage 5): tap the globe on the street to open **Streets**.
+  Sign in or create an account (email and password; the account is shared with the other apps on
+  the same Supabase project, and your name comes from your shared profile). Create a street
+  (you're its admin and get a 6-character invite code to share or copy), join a friend's street
+  with their code, see who's on each street, make a new code (admin), or leave.
+- **Playing on a shared street**: **Open street** switches to it (and the single-player street is
+  one tap away under Streets). Buy a vacant lot and run your shop next to your friends'. Their
+  shops, furniture, products and drawings appear on your street, their customer drawings join
+  the crowd, and you can visit their shops (look, don't touch). Your shops, drawings, coins and
+  books are saved to the street, so they come back on a new phone. Each shared street has its
+  own coins and its own local save, so it opens straight away and works offline; changes go up
+  a few seconds after you make them, and other players' changes arrive within about 20 seconds.
+  The top card says "offline" when it can't reach the server.
 
 There is no LLM or AI-generated content anywhere. All behaviour comes from hand-written systems.
 
@@ -102,7 +110,8 @@ shared/   Pure Kotlin (Kotlin Multiplatform, JVM target for now). No Android dep
   core/npc       Customer profiles, the NPC pool and the street crowd simulation
   core/art       Image helpers: content bounds, background removal, cutout sizing
   core/world     New-world factory and JSON save format
-  core/net       Supabase client over plain HTTP: auth (sign in/up, token refresh) and the streets API
+  core/net       Supabase client over plain HTTP: auth (sign in/up, token refresh), the streets
+                 API, and street sync (SyncPlanner / SyncMerge / StreetSyncer)
 app/      Android app (Jetpack Compose)
   ui/street      Street canvas, renderer, cutout drawing, gestures, placement UI
   ui/draw        Drawing tool and PNG export

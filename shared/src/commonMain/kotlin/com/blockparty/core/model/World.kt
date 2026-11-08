@@ -311,6 +311,22 @@ data class Street(
     val roadStartRow get() = lotDepth + sidewalkRows
 }
 
+/**
+ * Bookkeeping for a shared street. Hashes are of the JSON last sent (or received for this
+ * player's own things), so unchanged shops and drawings aren't sent again.
+ */
+@Serializable
+data class SyncState(
+    /** Lot id -> hash of the player's own shop as last sent. */
+    val pushedLots: Map<String, Int> = emptyMap(),
+    /** Sprite id -> hash of the player's own drawing's details as last sent. */
+    val pushedSprites: Map<String, Int> = emptyMap(),
+    /** Drawings by other players, downloaded from the street. */
+    val foreignSprites: Set<String> = emptySet(),
+    /** Hash of the player's coins, books and storage as last sent. */
+    val pushedPlayerState: Int = 0,
+)
+
 @Serializable
 data class WorldState(
     val version: Int = CURRENT_VERSION,
@@ -331,7 +347,12 @@ data class WorldState(
     val lastActiveMillis: Long = 0,
     /** Furniture (sprite ids) taken out of closed shops, ready to place again. */
     val storage: List<String> = emptyList(),
+    /** Shared streets only: what this device has sent to the server. */
+    val sync: SyncState = SyncState(),
 ) {
+    /** A street shared with other players (lots and drawings sync with the server). */
+    val isShared: Boolean get() = myUserId != null
+
     fun sprite(id: String?): SpriteAsset? = id?.let { sid -> sprites.firstOrNull { it.id == sid } }
 
     fun lot(id: String): Lot? = street.lots.firstOrNull { it.id == id }

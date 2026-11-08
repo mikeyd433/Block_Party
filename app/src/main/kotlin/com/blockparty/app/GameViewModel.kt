@@ -9,7 +9,15 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.blockparty.app.data.Backend
 import com.blockparty.app.data.SpriteStore
+import com.blockparty.core.net.BackendException
+import com.blockparty.core.net.DrawingFiles
+import com.blockparty.core.net.RemoteStreet
+import com.blockparty.core.net.ServerStreet
+import com.blockparty.core.net.SignedOutException
+import com.blockparty.core.net.StreetSyncer
+import com.blockparty.core.net.SyncMerge
 import com.blockparty.app.data.WorldRepository
 import com.blockparty.core.art.ImageOps
 import com.blockparty.app.data.StarterSet
@@ -46,6 +54,12 @@ import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /** What a new drawing will be used for once it's saved. */
+private const val KEY_LAST_STREET = "last_shared_street"
+/** How often an open shared street checks for other players' changes. */
+private const val SYNC_POLL_MS = 20_000L
+/** Pause after a change before syncing, so a burst of edits goes up together. */
+private const val SYNC_SETTLE_MS = 3_000L
+
 enum class DrawPurpose { FURNITURE, FACADE, SHOPKEEPER, OFFERING, CUSTOMER, EMPLOYEE }
 
 sealed interface Screen {
@@ -63,8 +77,11 @@ sealed interface Screen {
 }
 
 class GameViewModel(app: Application) : AndroidViewModel(app) {
-    private val repository = WorldRepository(app)
+    /** Where the open street is saved: the single-player street, or a shared street's local copy. */
+    private var repository = WorldRepository(app)
     val sprites = SpriteStore(app)
+    private val backend by lazy { Backend.get(app) }
+    private val prefs = app.getSharedPreferences("streets", android.content.Context.MODE_PRIVATE)
 
     var world by mutableStateOf<WorldState?>(null)
         private set
@@ -81,23 +98,33 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     var placingSpriteId by mutableStateOf<String?>(null)
         private set
 
-    private val saveRequests = Channel<WorldState>(Channel.CONFLATED)
+    private val saveRequests = Channel<Pair<WorldRepository, WorldState>>(Channel.CONFLATED)
 
     /** Customers walking the street. Lives here so it survives trips to the editors. */
-    val crowd = StreetCrowd()
+    var crowd = StreetCrowd()
+        private set
     var crowdWarmedUp = false
+
+    /** Server id of the open shared street, or null on the single-player street. */
+    var sharedStreetId by mutableStateOf<String?>(null)
+        private set
+
+    /** Shared streets: null when in step with the server, otherwise why not (shown on the street). */
+    var syncProblem by mutableStateOf<String?>(null)
+        private set
+
+    /** A street is being opened (the first download of a shared street can take a moment). */
+    var openingStreet by mutableStateOf(false)
+        private set
+
+    private var syncJob: kotlinx.coroutines.Job? = null
+    private val syncWanted = Channel<Unit>(Channel.CONFLATED)
 
     init {
         viewModelScope.launch {
-            val loaded = withContext(Dispatchers.IO) { repository.load() }
-            world = loaded
-            val decoded = withContext(Dispatchers.IO) {
-                loaded.sprites.mapNotNull { s -> sprites.decode(s.id)?.let { s.id to it } }
-            }
-            sprites.images.putAll(decoded)
-            ensureStarterSet()
-            fixFloatingBoxes()
-            catchUp()
+            val (repo, loaded) = withContext(Dispatchers.IO) { lastStreet() }
+            repository = repo
+            show(loaded)
             // Bills are settled at local midnight; check now and then for the day changing.
             while (true) {
                 settleEconomy()
@@ -106,8 +133,179 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
             }
         }
         viewModelScope.launch(Dispatchers.IO) {
-            saveRequests.consumeAsFlow().collect { repository.save(it) }
+            saveRequests.consumeAsFlow().collect { (repo, w) -> repo.save(w) }
         }
+    }
+
+    /** The street that was open last time: a shared street's local copy if there is one for this account. */
+    private fun lastStreet(): Pair<WorldRepository, WorldState> {
+        val streetId = prefs.getString(KEY_LAST_STREET, null)
+        val userId = runCatching { backend.auth.session?.userId }.getOrNull()
+        if (streetId != null && userId != null) {
+            val repo = WorldRepository.forSharedStreet(getApplication(), userId, streetId)
+            if (repo.exists()) return repo to repo.load()
+        }
+        val local = WorldRepository(getApplication())
+        return local to local.load()
+    }
+
+    /** Puts [w] on screen: loads its drawings, adds the starter set, catches up, starts syncing. */
+    private suspend fun show(w: WorldState) {
+        world = w
+        sharedStreetId = if (w.isShared) w.street.id else null
+        syncProblem = null
+        crowd = StreetCrowd()
+        crowdWarmedUp = false
+        currentLotId = (w.street.lots.firstOrNull { it.isMine(w) } ?: w.street.lots.firstOrNull())?.id ?: WorldFactory.HOME_LOT_ID
+        placingSpriteId = null
+        val missing = w.sprites.filter { it.id !in sprites.images }
+        val decoded = withContext(Dispatchers.IO) { missing.mapNotNull { s -> sprites.decode(s.id)?.let { s.id to it } } }
+        sprites.images.putAll(decoded)
+        ensureStarterSet()
+        fixFloatingBoxes()
+        catchUp()
+        if (w.isShared) startSync(w.street.id)
+    }
+
+    // --- Streets: single-player and shared ------------------------------------------------------
+
+    /** Back to the single-player street on this phone. */
+    fun openLocalStreet() {
+        if (sharedStreetId == null || openingStreet) return
+        viewModelScope.launch {
+            openingStreet = true
+            try {
+                val local = WorldRepository(getApplication())
+                val loaded = withContext(Dispatchers.IO) { local.load() }
+                switchTo(local, loaded)
+                prefs.edit().remove(KEY_LAST_STREET).apply()
+            } finally {
+                openingStreet = false
+            }
+        }
+    }
+
+    /**
+     * Opens a shared street to play. The first time, its lots, drawings and the player's coins come
+     * from the server; after that the local copy opens straight away (and works offline) and syncs.
+     * [onDone] gets an error message, or null once the street is open.
+     */
+    fun openSharedStreet(street: RemoteStreet, userId: String, playerName: String, onDone: (String?) -> Unit) {
+        if (openingStreet) return
+        if (sharedStreetId == street.id) { onDone(null); return }
+        viewModelScope.launch {
+            openingStreet = true
+            try {
+                val repo = WorldRepository.forSharedStreet(getApplication(), userId, street.id)
+                val loaded = if (withContext(Dispatchers.IO) { repo.exists() }) {
+                    withContext(Dispatchers.IO) { repo.load() }
+                } else {
+                    val syncer = syncerFor(street.id)
+                    val server = syncer.pull()
+                    val start = WorldFactory.newSharedWorld(street.id, street.name, street.timeZone, userId, playerName)
+                    var w = SyncMerge.merge(start, server).world
+                    syncer.playerState()?.let { w = SyncMerge.restorePlayer(w, it) }
+                    w
+                }
+                switchTo(repo, loaded)
+                prefs.edit().putString(KEY_LAST_STREET, street.id).apply()
+                onDone(null)
+            } catch (e: BackendException) {
+                onDone(e.message)
+            } finally {
+                openingStreet = false
+            }
+        }
+    }
+
+    /**
+     * After leaving a shared street: back to the single-player street if it was open, and forget
+     * the local copy (the server made the player's shops there vacant, so it would be out of date).
+     */
+    fun leftSharedStreet(userId: String, streetId: String) {
+        viewModelScope.launch {
+            if (sharedStreetId == streetId) {
+                syncJob?.cancel()
+                syncJob = null
+                val local = WorldRepository(getApplication())
+                val loaded = withContext(Dispatchers.IO) { local.load() }
+                repository = local
+                show(loaded)
+                backStack = listOf(Screen.Street)
+                prefs.edit().remove(KEY_LAST_STREET).apply()
+            }
+            withContext(Dispatchers.IO) { WorldRepository.forSharedStreet(getApplication(), userId, streetId).delete() }
+        }
+    }
+
+    private suspend fun switchTo(repo: WorldRepository, next: WorldState) {
+        syncJob?.cancel()
+        syncJob = null
+        // Save the street being left right away, rather than through the save queue.
+        val (oldRepo, old) = repository to world
+        if (old != null) withContext(Dispatchers.IO) { oldRepo.save(old) }
+        repository = repo
+        show(next)
+        saveRequests.trySend(repo to world!!)
+        backStack = listOf(Screen.Street)
+    }
+
+    private fun syncerFor(streetId: String) = StreetSyncer(backend.streets, streetId, object : DrawingFiles {
+        override suspend fun read(spriteId: String) = withContext(Dispatchers.IO) { sprites.readBytes(spriteId) }
+        override suspend fun write(spriteId: String, png: ByteArray) = withContext(Dispatchers.IO) { sprites.writeBytes(spriteId, png) }
+    })
+
+    /**
+     * Keeps the open shared street in step with the server: sends the player's changes soon after
+     * they happen, and pulls everyone else's every [SYNC_POLL_MS] (realtime updates come later).
+     */
+    private fun startSync(streetId: String) {
+        syncJob?.cancel()
+        val syncer = syncerFor(streetId)
+        syncJob = viewModelScope.launch {
+            var server: ServerStreet? = null
+            while (true) {
+                if (world?.street?.id != streetId) break
+                try {
+                    if (backend.auth.session == null) throw SignedOutException()
+                    val known = server ?: syncer.pull()
+                    val snapshot = world ?: break
+                    val pushed = syncer.push(snapshot, known.lots) { partial -> applySync(streetId) { StreetSyncer.record(it, partial) } }
+                    applySync(streetId) { StreetSyncer.record(it, pushed) }
+                    val fresh = syncer.pull()
+                    server = fresh
+                    val current = world ?: break
+                    if (current.street.id != streetId) break
+                    val result = SyncMerge.merge(current, fresh)
+                    applySync(streetId) { result.world }
+                    if (result.notices.isNotEmpty()) notices = notices + result.notices
+                    if (result.newSprites.isNotEmpty()) {
+                        val arrived = syncer.download(result.newSprites)
+                        val decoded = withContext(Dispatchers.IO) { arrived.mapNotNull { id -> sprites.decode(id)?.let { id to it } } }
+                        sprites.images.putAll(decoded)
+                    }
+                    syncProblem = null
+                } catch (e: SignedOutException) {
+                    syncProblem = "signed out"
+                } catch (e: BackendException) {
+                    syncProblem = "offline"
+                    server = null
+                }
+                // Wait for a change (or the next poll), then a moment more so bursts go together.
+                kotlinx.coroutines.withTimeoutOrNull(SYNC_POLL_MS) { syncWanted.receive() }
+                kotlinx.coroutines.delay(SYNC_SETTLE_MS)
+            }
+        }
+    }
+
+    /** Applies a sync result to the open street, if it's still the street being synced. */
+    private fun applySync(streetId: String, transform: (WorldState) -> WorldState) {
+        val current = world ?: return
+        if (current.street.id != streetId) return
+        val next = transform(current)
+        if (next == current) return
+        world = next
+        saveRequests.trySend(repository to next)
     }
 
     /** The shop the player is looking at / editing. */
@@ -116,7 +314,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
 
     val currentLot: Lot?
         get() = world?.let { w ->
-            w.lot(currentLotId) ?: w.street.lots.firstOrNull { it.state == LotState.OWNED } ?: w.street.lots.firstOrNull()
+            w.lot(currentLotId) ?: w.street.lots.firstOrNull { it.isMine(w) } ?: w.street.lots.firstOrNull()
         }
 
     fun selectLot(lotId: String) {
@@ -323,9 +521,18 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun update(transform: (WorldState) -> WorldState) {
         val current = world ?: return
-        val next = transform(current)
+        var next = transform(current)
+        if (current.isShared) {
+            // Other players' shops only change through sync: their own devices own them.
+            val theirs = current.street.lots.filter { it.state == LotState.OWNED && !it.isMine(current) }.associateBy { it.id }
+            if (theirs.isNotEmpty()) {
+                next = next.copy(street = next.street.copy(lots = next.street.lots.map { theirs[it.id] ?: it }))
+            }
+            syncWanted.trySend(Unit)
+        }
+        if (next == current) return
         world = next
-        saveRequests.trySend(next)
+        saveRequests.trySend(repository to next)
     }
 
     private fun updateCurrentLot(transform: (Lot) -> Lot) {

@@ -117,6 +117,8 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
     val snackbar = remember { SnackbarHostState() }
     val textMeasurer = rememberTextMeasurer()
     val currentLot = vm.currentLot ?: return
+    /** False when visiting another player's shop on a shared street: look, don't touch. */
+    val mine = currentLot.isMine(world)
     var buyLotId by remember { mutableStateOf<String?>(null) }
 
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
@@ -295,7 +297,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                 else -> when (val hit = sceneAt(time).hitTest(p)) {
                     is Hit.Cutout -> {
                         trigger(hit.id, EffectType.HOP)
-                        selectedId = hit.id
+                        if (mine) selectedId = hit.id
                     }
                     is Hit.Tile -> {
                         selectedNpc = null
@@ -344,7 +346,12 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
 
         TopBar(
             title = currentLot.business?.name?.ifBlank { null } ?: if (currentLot.business == null) "Vacant lot" else "My Shop",
-            subtitle = world.street.name + if (interior) " · inside" else "",
+            subtitle = buildString {
+                append(world.street.name)
+                if (!mine && currentLot.state == LotState.OWNED) append(" · ${currentLot.ownerName.ifBlank { "someone" }}'s shop")
+                else if (interior) append(" · inside")
+                vm.syncProblem?.let { append(" · $it") }
+            },
             coins = world.coins,
             rating = currentLot.business?.rating,
             debtDaysLeft = Economy.graceDaysLeft(world, vm.today()),
@@ -432,6 +439,18 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                 }
                 selectedId == SHOPKEEPER_ID && keeperSprite != null ->
                     SelectionCard(sprite = keeperSprite, vm = vm, onClose = { selectedId = null }) {}
+                interior && !mine -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FilledTonalIconButton(onClick = ::exitToStreet, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.Map, "Back to street")
+                    }
+                    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), shadowElevation = 2.dp) {
+                        Text(
+                            "Visiting ${currentLot.ownerName.ifBlank { "a friend" }}'s shop",
+                            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                    }
+                }
                 interior -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     val soldOut = currentLot.business?.offerings.orEmpty().count { it.kind == OfferingKind.PRODUCT && it.stock == 0 }
                     if (soldOut > 0) {
@@ -458,10 +477,12 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                         Icon(Icons.Default.Groups, "Street people")
                     }
                     Button(onClick = { enterShop() }, enabled = currentLot.business != null) {
-                        Icon(Icons.Default.Storefront, null); Spacer(Modifier.width(6.dp)); Text("Go inside")
+                        Icon(Icons.Default.Storefront, null); Spacer(Modifier.width(6.dp)); Text(if (mine) "Go inside" else "Visit")
                     }
-                    FilledTonalButton(onClick = { vm.navigate(Screen.ShopEditor) }) {
-                        Icon(Icons.Default.Edit, null); Spacer(Modifier.width(6.dp)); Text("Edit shop", maxLines = 1)
+                    if (mine) {
+                        FilledTonalButton(onClick = { vm.navigate(Screen.ShopEditor) }) {
+                            Icon(Icons.Default.Edit, null); Spacer(Modifier.width(6.dp)); Text("Edit shop", maxLines = 1)
+                        }
                     }
                 }
             }

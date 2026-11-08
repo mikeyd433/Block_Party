@@ -25,19 +25,29 @@ Keep in mind: database/storage/bandwidth limits and free-plan pausing are shared
 
 ## Remaining build work
 
-1. **Stage 5 (app side).** Done: sign-in and new accounts (email + password), the Streets
-   screen (the local single-player street plus shared ones), create street (admin, invite
-   code with share/copy, new code), join by code, members list, leave. The client is a small
-   hand-written Supabase client in `shared/core/net` (supabase-kt needs Kotlin 2.3+, and the
-   project is on 2.2). Still to do:
-   - **Open a shared street to play.** Each street gets its own local `WorldState` file
-     (`world-<streetId>.json`), with `myUserId` set and lots seeded from `block_party.lots`.
-   - **Syncing:** own lots (via `claim_lot` / `close_lot` / `merge_lots` and updates to
-     business/furniture), player state and drawings (the `block-party-drawings` bucket) up;
-     other players' lots and drawings down; realtime updates (needs a websocket client, or
-     supabase-kt after a Kotlin upgrade). The groundwork is already in the app: lot ownership
-     (`Lot.ownerId`, `WorldState.myUserId`, `isMine`), offline catch-up, and per-device sales
-     for your own shops only.
+1. **Stage 5 (app side).** Done: sign-in and new accounts, the Streets screen, create / join /
+   leave, invite codes, and **playing on a shared street**:
+   - Each shared street has its own local save (`streets/<user id>/<street id>.json`, a
+     `WorldState` with `myUserId` set). The first open downloads the lots, drawings and the
+     player's coins/books (`player_state`); after that it opens from the local copy.
+   - Sync (`shared/core/net/StreetSync.kt`): each device owns its player's shops and drawings.
+     `SyncPlanner` compares the local world with the server and produces claim / close / merge /
+     update / sprite / player-state calls, so buying, closing (including by debt) and merging
+     work locally first and are sent afterwards, offline included. `SyncMerge` takes everyone
+     else's lots and drawings from the server and keeps the player's own. Losing a race for a
+     lot hands it to the other player and refunds the price. Drawing PNGs go to the
+     `block-party-drawings` bucket under `<street id>/<sprite id>.png`.
+   - The loop in `GameViewModel.startSync` sends changes ~3 s after they happen and pulls every
+     20 s. Other players' shops can be visited but not changed (the view model also ignores
+     edits to them).
+   Still to do:
+   - **Realtime updates** instead of the 20 s poll (a websocket client for Supabase Realtime,
+     or supabase-kt after a Kotlin upgrade). Pulls currently fetch the whole street each time.
+   - **Removed by the admin:** the device keeps trying to sync and shows "offline". It should
+     notice it's no longer a member, say so, and forget the local copy (leaving does this).
+   - Deleting another player's drawing from your picker only hides it until the next pull.
+   - Customer profiles for other players' drawings use your level's tag set, so tastes can
+     differ slightly between devices with different levels.
    - **Invite links** (a deep link that opens Join with the code filled in).
    - If the project requires email confirmation, the confirmation link goes to the project's
      Site URL (set for Not A Book Club). The app tells players to confirm and then sign in.

@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
@@ -110,15 +111,16 @@ fun StreetsScreen(vm: GameViewModel, online: OnlineViewModel, world: WorldState)
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             SectionTitle("On this phone")
-            Card(onClick = vm::back, modifier = Modifier.fillMaxWidth()) {
+            val onLocal = vm.sharedStreetId == null
+            Card(onClick = { if (onLocal) vm.back() else vm.openLocalStreet() }, modifier = Modifier.fillMaxWidth()) {
                 Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Home, null)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(world.street.name, style = MaterialTheme.typography.titleMedium)
+                        Text(if (onLocal) world.street.name else "My street", style = MaterialTheme.typography.titleMedium)
                         Text("Your single-player street", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Text("Playing", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(if (onLocal) "Playing" else "Open", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 }
             }
 
@@ -150,7 +152,9 @@ fun StreetsScreen(vm: GameViewModel, online: OnlineViewModel, world: WorldState)
                 }
                 online.streetsError?.let { ErrorText(it) }
                 for (street in online.streets) {
-                    StreetCard(street, isAdmin = street.adminId == account.userId) { vm.navigate(Screen.SharedStreet(street.id)) }
+                    StreetCard(street, isAdmin = street.adminId == account.userId, playing = vm.sharedStreetId == street.id) {
+                        vm.navigate(Screen.SharedStreet(street.id))
+                    }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = { online.clearFormError(); dialog = "create" }, modifier = Modifier.weight(1f)) {
@@ -204,7 +208,7 @@ fun StreetsScreen(vm: GameViewModel, online: OnlineViewModel, world: WorldState)
 }
 
 @Composable
-private fun StreetCard(street: RemoteStreet, isAdmin: Boolean, onClick: () -> Unit) {
+private fun StreetCard(street: RemoteStreet, isAdmin: Boolean, playing: Boolean, onClick: () -> Unit) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.Groups, null)
@@ -216,6 +220,7 @@ private fun StreetCard(street: RemoteStreet, isAdmin: Boolean, onClick: () -> Un
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            if (playing) Text("Playing", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
         }
     }
 }
@@ -331,6 +336,7 @@ fun SharedStreetScreen(vm: GameViewModel, online: OnlineViewModel, streetId: Str
     val me = online.account?.userId
     val isAdmin = street != null && street.adminId == me
     var confirm by remember { mutableStateOf<String?>(null) } // "leave" or "newCode"
+    var openError by remember { mutableStateOf<String?>(null) }
 
     Scaffold(
         topBar = {
@@ -378,16 +384,35 @@ fun SharedStreetScreen(vm: GameViewModel, online: OnlineViewModel, streetId: Str
                 }
             }
 
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("Coming next: playing together", style = MaterialTheme.typography.titleSmall)
-                    Text(
-                        "Opening this street to run shops side by side, with everyone's lots and drawings kept in sync, " +
-                            "is the next update. For now you can gather your friends here.",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+            val playing = vm.sharedStreetId == streetId
+            val account = online.account
+            Button(
+                onClick = {
+                    if (playing) vm.back()
+                    else if (account != null) {
+                        openError = null
+                        val name = account.displayName.ifBlank { account.email.substringBefore('@') }
+                        vm.openSharedStreet(street, account.userId, name) { error -> openError = error }
+                    }
+                },
+                enabled = !vm.openingStreet && account != null,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+            ) {
+                if (vm.openingStreet) {
+                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+                    Spacer(Modifier.width(10.dp))
+                    Text("Opening street…")
+                } else {
+                    Icon(Icons.Default.Storefront, null); Spacer(Modifier.width(8.dp))
+                    Text(if (playing) "Back to the street" else "Open street")
                 }
             }
+            openError?.let { ErrorText(it) }
+            Text(
+                "Buy a lot and run your shop next to your friends'. Your shops and drawings are saved to the street, " +
+                    "and you'll see theirs. Your coins here are separate from your single-player street.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
             val people = online.members[streetId]
             SectionTitle(if (people == null) "People" else "People (${people.size})")
@@ -430,7 +455,17 @@ fun SharedStreetScreen(vm: GameViewModel, online: OnlineViewModel, streetId: Str
                 }
             },
             confirmButton = {
-                TextButton(onClick = { online.leaveStreet(streetId) { confirm = null; vm.back() } }, enabled = !online.busy) { Text("Leave") }
+                TextButton(
+                    onClick = {
+                        val userId = me
+                        online.leaveStreet(streetId) {
+                            confirm = null
+                            if (userId != null) vm.leftSharedStreet(userId, streetId)
+                            vm.back()
+                        }
+                    },
+                    enabled = !online.busy,
+                ) { Text("Leave") }
             },
             dismissButton = { TextButton(onClick = { confirm = null }) { Text("Stay") } },
         )

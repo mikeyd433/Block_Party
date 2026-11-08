@@ -28,13 +28,14 @@ class UrlConnectionTransport : HttpTransport {
                 conn.connectTimeout = 15_000
                 conn.readTimeout = 20_000
                 request.headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
-                request.body?.let { body ->
+                (request.bytes ?: request.body?.toByteArray())?.let { body ->
                     conn.doOutput = true
-                    conn.outputStream.use { it.write(body.toByteArray()) }
+                    conn.outputStream.use { it.write(body) }
                 }
                 val code = conn.responseCode
                 val stream = if (code >= 400) conn.errorStream else conn.inputStream
-                HttpResponse(code, stream?.bufferedReader()?.use { it.readText() }.orEmpty())
+                val bytes = stream?.use { it.readBytes() } ?: ByteArray(0)
+                HttpResponse(code, bytes.decodeToString(), bytes)
             } finally {
                 conn.disconnect()
             }

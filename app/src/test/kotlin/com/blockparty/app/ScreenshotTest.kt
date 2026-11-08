@@ -168,6 +168,48 @@ class ScreenshotTest {
     }
 
     @Test
+    fun sharedStreetWithAFriendsShop() {
+        val vm = newViewModel()
+        val base = vm.world!!
+        fun lot(i: Int, owner: String?, name: String?) = com.blockparty.core.net.RemoteLot(
+            "lot-$i", com.blockparty.core.model.GridRect(1 + i * 7, 0, 6, 6), if (owner == null) "VACANT" else "OWNED",
+            owner, if (owner == "u1") "Ann" else "Bo",
+            name?.let { com.blockparty.core.net.SyncCodec.business(com.blockparty.core.model.Business(it)) },
+            com.blockparty.core.net.SyncCodec.furniture(emptyList()),
+        )
+        val start = WorldFactory.newSharedWorld("s1", "Elm Street", "UTC", "u1", "Ann")
+            .copy(sprites = base.sprites, npcs = base.npcs, starterSetVersion = base.starterSetVersion)
+        val shared = com.blockparty.core.net.SyncMerge.merge(
+            start,
+            com.blockparty.core.net.ServerStreet(listOf(lot(0, "u1", "Ann's Cakes"), lot(1, "u2", "Bo's Books"), lot(2, null, null)), emptyList()),
+        ).world
+        vm.debugReplaceWorld(shared)
+        vm.selectLot("lot-1")
+
+        // Bo's shop can't be changed from Ann's phone.
+        vm.setBusinessName("Hacked")
+        assertEquals("Bo's Books", vm.world!!.lot("lot-1")!!.business!!.name)
+
+        compose.mainClock.autoAdvance = false // the street animates forever
+        compose.setContent { BlockPartyTheme { BlockPartyApp(vm) } }
+        advance(500)
+        compose.onNodeWithText("Elm Street · Bo's shop").assertExists()
+        compose.onNodeWithText("Edit shop").assertDoesNotExist()
+        snapshot("30_shared_street")
+
+        compose.onNodeWithText("Visit").performClick()
+        advance(1500)
+        compose.onNodeWithText("Visiting Bo's shop").assertExists()
+        compose.onNodeWithText("Furniture").assertDoesNotExist()
+        snapshot("31_visiting")
+
+        // Ann's own shop still edits as normal.
+        vm.selectLot("lot-0")
+        vm.setBusinessName("Ann's Bigger Cakes")
+        assertEquals("Ann's Bigger Cakes", vm.world!!.lot("lot-0")!!.business!!.name)
+    }
+
+    @Test
     fun starterSetAndDrawnCustomers() {
         val vm = newViewModel()
         val world = vm.world!!

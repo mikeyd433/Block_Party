@@ -37,6 +37,17 @@ object WorldFactory {
         return WorldState(playerName = playerName, street = street)
     }
 
+    /**
+     * A shared street before its lots arrive from the server. [streetId] is the server's id, and
+     * [myUserId] marks lots this player owns.
+     */
+    fun newSharedWorld(streetId: String, name: String, timeZoneId: String, myUserId: String, playerName: String): WorldState =
+        WorldState(
+            playerName = playerName,
+            street = Street(id = streetId, name = name, widthTiles = 1 + (LOT_WIDTH + 1) * 3, lotDepth = LOT_DEPTH, lots = emptyList(), timeZoneId = timeZoneId),
+            myUserId = myUserId,
+        )
+
     const val HOME_LOT_ID = "lot-home"
 }
 

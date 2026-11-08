@@ -10,14 +10,17 @@ import kotlinx.serialization.json.jsonObject
  * A minimal HTTP layer so the backend client stays platform-independent: each platform
  * supplies a [HttpTransport] (Android uses HttpURLConnection), and tests use a fake.
  */
-data class HttpRequest(
+class HttpRequest(
     val method: String,
     val url: String,
     val headers: Map<String, String> = emptyMap(),
     val body: String? = null,
+    /** Binary body (drawing uploads); sent instead of [body] when set. */
+    val bytes: ByteArray? = null,
 )
 
-data class HttpResponse(val code: Int, val body: String) {
+/** [bytes] is the raw body (drawing downloads); [body] is the same as text. */
+class HttpResponse(val code: Int, val body: String, val bytes: ByteArray = body.encodeToByteArray()) {
     val isSuccess: Boolean get() = code in 200..299
 }
 
