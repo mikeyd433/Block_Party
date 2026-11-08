@@ -677,7 +677,7 @@ class StreetCrowd(private val random: Random = Random.Default) {
 
     /**
      * Runs services: a free staff member walks to the station, hands the service's drawing to the
-     * customer, waits while they're served, takes it back, and the customer leaves.
+     * customer, who holds it while being served and leaves with it.
      */
     private fun updateSessions(dt: Float) {
         val finished = ArrayList<ServiceSession>()
@@ -710,10 +710,9 @@ class StreetCrowd(private val random: Random = Random.Default) {
                     when (s.phase) {
                         ServicePhase.PREPARING -> { worker?.heldItem = null; s.advance(ServicePhase.HANDING_OVER) }
                         ServicePhase.HANDING_OVER -> { c.heldItem = s.offeringId; s.advance(ServicePhase.SERVING) }
-                        ServicePhase.SERVING -> { c.heldItem = null; s.advance(ServicePhase.HANDING_BACK) }
-                        ServicePhase.HANDING_BACK -> { worker?.heldItem = s.offeringId; s.advance(ServicePhase.FINISHING) }
+                        // The customer keeps the item and leaves with it.
+                        ServicePhase.SERVING -> s.advance(ServicePhase.FINISHING)
                         ServicePhase.FINISHING -> {
-                            worker?.heldItem = null
                             c.gotService = true
                             c.chosenService?.let { service ->
                                 events += CrowdEvent.Sale(s.door.lotId, c.profile, listOf(service), service.price, c.position)
@@ -730,7 +729,8 @@ class StreetCrowd(private val random: Random = Random.Default) {
         }
         for (s in finished) {
             s.staff?.let { if (it.session === s) { it.session = null; it.heldItem = null; it.pause = 0.5f } }
-            if (s.customer.heldItem == s.offeringId) s.customer.heldItem = null
+            // Only take the item away if the service didn't finish (they keep it otherwise).
+            if (!s.customer.gotService && s.customer.heldItem == s.offeringId) s.customer.heldItem = null
         }
         sessions.removeAll(finished)
     }

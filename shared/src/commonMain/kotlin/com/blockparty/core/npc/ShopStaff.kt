@@ -43,7 +43,7 @@ class StaffMember internal constructor(
 }
 
 enum class ServicePhase {
-    WAITING_FOR_STAFF, STAFF_WALKING, PREPARING, HANDING_OVER, SERVING, HANDING_BACK, FINISHING,
+    WAITING_FOR_STAFF, STAFF_WALKING, PREPARING, HANDING_OVER, SERVING, FINISHING,
 }
 
 /** A service in progress, as seen by the renderer. [progress] is 0..1 through the current phase. */
@@ -73,7 +73,7 @@ internal class ServiceSession(
 
     fun phaseLength(): Float = when (phase) {
         ServicePhase.PREPARING, ServicePhase.FINISHING -> 0.45f
-        ServicePhase.HANDING_OVER, ServicePhase.HANDING_BACK -> 0.6f
+        ServicePhase.HANDING_OVER -> 0.6f
         ServicePhase.SERVING -> duration
         else -> 0f
     }

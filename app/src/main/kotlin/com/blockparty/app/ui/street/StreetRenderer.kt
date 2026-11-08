@@ -546,15 +546,14 @@ private fun DrawScope.drawHeld(item: CutoutItem) {
 }
 
 /**
- * Service item handover: while a service starts or ends, the service's drawing arcs between the
- * staff member's hand and the customer's.
+ * Service item handover: when a service starts, the service's drawing arcs from the staff
+ * member's hand to the customer's (who keeps it).
  */
 private fun DrawScope.drawHandovers(scene: StreetScene, lot: Lot, cutouts: List<CutoutItem>) {
     val byId = cutouts.associateBy { it.id }
     for (v in scene.services) {
         if (v.customer.insideLotId != lot.id) continue
-        val giving = v.phase == ServicePhase.HANDING_OVER
-        if (!giving && v.phase != ServicePhase.HANDING_BACK) continue
+        if (v.phase != ServicePhase.HANDING_OVER) continue
         val image = scene.offeringImage(lot, v.offeringId) ?: continue
         val staffItem = v.staff?.let { byId[it.id] }
         val customerItem = byId[npcEffectId(v.customer)]
@@ -562,7 +561,8 @@ private fun DrawScope.drawHandovers(scene: StreetScene, lot: Lot, cutouts: List<
             scene.iso.gridToScreen(it.position.x, it.position.y).toOffset() - Offset(0f, scene.iso.tileHeight)
         } ?: continue
         val customerHand = customerItem?.handPoint() ?: continue
-        val (from, to) = if (giving) staffHand to customerHand else customerHand to staffHand
+        val from = staffHand
+        val to = customerHand
         val t = v.progress
         val eased = t * t * (3f - 2f * t)
         val arc = scene.iso.tileHeight * 0.8f * kotlin.math.sin(Math.PI.toFloat() * t)

@@ -54,7 +54,7 @@ street, shop by their tastes and budget, pay, and leave reviews.
   services when done, and some leave a 1–5 star review written from hand-authored phrases (tag
   matches and misses, value for money, things they couldn't afford, queue time). Coins and the
   shop's rating show in the top bar; tap it for stats and reviews. Staff hand the service's
-  drawing to the customer at service stations and take it back afterwards.
+  drawing to the customer at service stations, and the customer leaves with it.
 - **Starter set**: a small hand-made set of customers, furniture (including 3D pieces) and
   storefronts is added to a new street so it isn't empty. Player-drawn customers gradually
   replace the starter crowd: after 6 drawn customers, starter customers stop appearing.
