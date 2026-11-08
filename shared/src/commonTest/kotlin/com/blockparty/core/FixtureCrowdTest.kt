@@ -40,6 +40,7 @@ class FixtureCrowdTest {
         return ShopDoor(
             WorldFactory.HOME_LOT_ID, lot, free, { 0.9f }, fixtures,
             offersServices = true, servicesOnly = servicesOnly,
+            serviceIds = listOf("haircut"),
         )
     }
 
@@ -80,6 +81,36 @@ class FixtureCrowdTest {
         assertTrue(paidAtCheckout, "someone paid at the checkout")
         assertTrue(servedOnStation, "someone was served at the station")
         assertTrue(satOnSeat, "someone sat down")
+    }
+
+    @Test
+    fun staffHandTheServiceItemOverAndBack() {
+        val d = door(servicesOnly = true)
+        val crowd = StreetCrowd(Random(5))
+        val access = d.fixtures.first { it.id == "station" }.access!!
+        var staffHeld = false
+        var customerHeld = false
+        var sawHandOver = false
+        var sawHandBack = false
+        repeat(8000) {
+            crowd.update(0.05f, street, listOf(d), pick)
+            assertEquals(1, crowd.staff.size, "one shopkeeper")
+            val keeper = crowd.staff.single()
+            val t = keeper.position.x.toInt() to keeper.position.y.toInt()
+            assertTrue(t in d.freeTiles, "shopkeeper on furniture at $t")
+            if (keeper.heldItem == "haircut") staffHeld = true
+            if (crowd.people.any { it.heldItem == "haircut" && it.seatedOn == "station" }) customerHeld = true
+            for (v in crowd.services) {
+                if (v.phase == com.blockparty.core.npc.ServicePhase.HANDING_OVER) {
+                    sawHandOver = true
+                    assertEquals(access, t, "hands over from beside the station")
+                }
+                if (v.phase == com.blockparty.core.npc.ServicePhase.HANDING_BACK) sawHandBack = true
+            }
+            // Only one customer is ever holding the item per staff member.
+            assertTrue(crowd.people.count { it.heldItem != null } <= 1)
+        }
+        assertTrue(staffHeld && customerHeld && sawHandOver && sawHandBack)
     }
 
     @Test

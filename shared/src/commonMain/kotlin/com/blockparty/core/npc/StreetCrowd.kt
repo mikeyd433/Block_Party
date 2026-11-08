@@ -32,6 +32,10 @@ class ShopDoor(
     val servicesOnly: Boolean = false,
     /** Tiles next to display pieces; browsers head for these first. */
     val browseSpots: List<TileXY> = emptyList(),
+    /** Staff working here (the shopkeeper for now; employees later). They provide services. */
+    val staffIds: List<String> = listOf(StreetCrowd.SHOPKEEPER_STAFF_ID),
+    /** Services on offer (offering ids); a customer at a station gets one of these. */
+    val serviceIds: List<String> = emptyList(),
 ) {
     /** Tile just inside the front wall, in the middle of the shop front. */
     val entryTile: TileXY get() = (lot.x + lot.w / 2) to (lot.bottom - 1)
@@ -110,6 +114,9 @@ class Pedestrian internal constructor(
     /** Furniture (placement id) the pedestrian is sitting on, if any. */
     var seatedOn: String? = null
         internal set
+    /** Offering whose drawing they're holding (e.g. during a service). */
+    var heldItem: String? = null
+        internal set
     val isWalking: Boolean get() = path.isNotEmpty() && pause <= 0f
 
     internal val path = ArrayDeque<Vec2>()
@@ -145,6 +152,14 @@ class StreetCrowd(private val random: Random = Random.Default) {
 
     private fun key(door: ShopDoor, f: Fixture) = door.lotId + "/" + f.id
 
+    private val _staff = ArrayList<StaffMember>()
+    /** Staff in every shop (shopkeepers now, employees later). */
+    val staff: List<StaffMember> get() = _staff
+
+    private val sessions = ArrayList<ServiceSession>()
+    /** Services in progress, for drawing the item handover. */
+    val services: List<ServiceView> get() = sessions.map { it.view() }
+
     /**
      * Advances the crowd by [dt] seconds.
      * @param pick chooses the next customer to appear (null when the pool is empty).
@@ -163,8 +178,11 @@ class StreetCrowd(private val random: Random = Random.Default) {
             spawnTimer = SPAWN_MIN_SEC + random.nextFloat() * (SPAWN_MAX_SEC - SPAWN_MIN_SEC)
             if (_people.size < MAX_PEOPLE) spawn(street, pick)
         }
+        syncStaff(doors)
         for (p in _people) step(p, dt, street, doors)
+        for (s in _staff) stepStaff(s, dt)
         updateQueues()
+        updateSessions(dt)
         val gone = _people.filter { it.done }
         if (gone.isNotEmpty()) {
             for (p in gone) release(p)
@@ -415,10 +433,17 @@ class StreetCrowd(private val random: Random = Random.Default) {
         val f = p.queueFixture ?: return
         when (f.type) {
             FurnitureType.SERVICE_STATION -> {
+                // Sit on the station and wait for a member of staff to come and serve.
+                val door = p.visiting ?: return
                 p.task = Task.SERVED
                 p.position = rectCenter(f.rect)
                 p.seatedOn = f.id
-                p.pause = SERVICE_MIN_SEC + random.nextFloat() * (SERVICE_MAX_SEC - SERVICE_MIN_SEC)
+                p.pause = 0f
+                sessions += ServiceSession(
+                    door = door, station = f, customer = p,
+                    offeringId = door.serviceIds.randomOrNull(random),
+                    duration = SERVICE_MIN_SEC + random.nextFloat() * (SERVICE_MAX_SEC - SERVICE_MIN_SEC),
+                )
             }
             else -> {
                 p.task = Task.PAYING
@@ -485,7 +510,120 @@ class StreetCrowd(private val random: Random = Random.Default) {
         if (p.task == Task.QUEUED) p.queueIndex = -1 // re-place in the new layout
     }
 
+    // --- Staff and services --------------------------------------------------------------------
+
+    /** Makes sure every shop has its staff, and removes staff of shops that are gone. */
+    private fun syncStaff(doors: List<ShopDoor>) {
+        _staff.removeAll { s -> doors.none { it.lotId == s.lotId && s.id in it.staffIds } }
+        for (door in doors) {
+            for (id in door.staffIds) {
+                val existing = _staff.firstOrNull { it.lotId == door.lotId && it.id == id }
+                if (existing != null) {
+                    existing.door = door
+                    continue
+                }
+                val start = door.reachable.randomOrNull(random) ?: door.entryTile
+                _staff += StaffMember(id, door.lotId, Wanderer.center(start)).also {
+                    it.door = door
+                    it.pause = random.nextFloat() * 2f
+                }
+            }
+        }
+    }
+
+    private fun stepStaff(s: StaffMember, dt: Float) {
+        val door = s.door ?: return
+        if (s.path.isEmpty()) {
+            if (s.session != null) return // standing at the station, serving
+            s.pause -= dt
+            if (s.pause > 0f) return
+            // Idle: stroll to another spot in the shop.
+            s.pause = STAFF_IDLE_MIN_SEC + random.nextFloat() * (STAFF_IDLE_MAX_SEC - STAFF_IDLE_MIN_SEC)
+            val goal = door.reachable.randomOrNull(random) ?: return
+            s.walkTo(goal, door)
+            return
+        }
+        var remaining = STAFF_SPEED * dt
+        while (remaining > 0f && s.path.isNotEmpty()) {
+            val target = s.path.first()
+            val delta = target - s.position
+            val dist = sqrt(delta.x * delta.x + delta.y * delta.y)
+            val screenDx = delta.x - delta.y
+            if (screenDx > 0.01f) s.facingRight = true else if (screenDx < -0.01f) s.facingRight = false
+            if (dist <= remaining) {
+                s.position = target
+                s.distanceWalked += dist
+                remaining -= dist
+                s.path.removeFirst()
+            } else {
+                s.position = s.position + delta * (remaining / dist)
+                s.distanceWalked += remaining
+                remaining = 0f
+            }
+        }
+    }
+
+    /**
+     * Runs services: a free staff member walks to the station, hands the service's drawing to the
+     * customer, waits while they're served, takes it back, and the customer leaves.
+     */
+    private fun updateSessions(dt: Float) {
+        val finished = ArrayList<ServiceSession>()
+        for (s in sessions) {
+            val c = s.customer
+            if (c.done || c.task != Task.SERVED || c.seatedOn != s.station.id) {
+                finished += s // customer left (e.g. the station was moved)
+                continue
+            }
+            when (s.phase) {
+                ServicePhase.WAITING_FOR_STAFF -> {
+                    val worker = _staff.firstOrNull { it.lotId == s.door.lotId && it.session == null } ?: continue
+                    worker.session = s
+                    s.staff = worker
+                    s.phase = ServicePhase.STAFF_WALKING
+                    worker.walkTo(s.station.access ?: worker.tile, s.door)
+                }
+                ServicePhase.STAFF_WALKING -> {
+                    val worker = s.staff ?: continue
+                    if (worker.path.isEmpty()) {
+                        worker.faceTowards(rectCenter(s.station.rect))
+                        worker.heldItem = s.offeringId
+                        s.advance(ServicePhase.PREPARING)
+                    }
+                }
+                else -> {
+                    s.elapsed += dt
+                    if (s.elapsed < s.phaseLength()) continue
+                    val worker = s.staff
+                    when (s.phase) {
+                        ServicePhase.PREPARING -> { worker?.heldItem = null; s.advance(ServicePhase.HANDING_OVER) }
+                        ServicePhase.HANDING_OVER -> { c.heldItem = s.offeringId; s.advance(ServicePhase.SERVING) }
+                        ServicePhase.SERVING -> { c.heldItem = null; s.advance(ServicePhase.HANDING_BACK) }
+                        ServicePhase.HANDING_BACK -> { worker?.heldItem = s.offeringId; s.advance(ServicePhase.FINISHING) }
+                        ServicePhase.FINISHING -> {
+                            worker?.heldItem = null
+                            finished += s
+                            standUp(c)
+                            dequeue(c)
+                            leave(c)
+                        }
+                        else -> Unit
+                    }
+                }
+            }
+        }
+        for (s in finished) {
+            s.staff?.let { if (it.session === s) { it.session = null; it.heldItem = null; it.pause = 0.5f } }
+            if (s.customer.heldItem == s.offeringId) s.customer.heldItem = null
+        }
+        sessions.removeAll(finished)
+    }
+
     companion object {
+        const val SHOPKEEPER_STAFF_ID = "shopkeeper"
+        const val STAFF_SPEED = 1.4f
+        const val STAFF_IDLE_MIN_SEC = 1f
+        const val STAFF_IDLE_MAX_SEC = 3.5f
         const val MAX_PEOPLE = 9
         const val SPAWN_MIN_SEC = 1.6f
         const val SPAWN_MAX_SEC = 4.2f

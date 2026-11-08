@@ -41,7 +41,9 @@ import com.blockparty.core.model.Lot
 import com.blockparty.core.model.LotState
 import com.blockparty.core.model.WorldState
 import com.blockparty.core.sim.Placement
-import com.blockparty.core.sim.Wanderer
+import com.blockparty.core.npc.ServicePhase
+import com.blockparty.core.npc.ServiceView
+import com.blockparty.core.npc.StaffMember
 import com.blockparty.core.npc.Pedestrian
 import kotlin.math.min
 
@@ -65,7 +67,10 @@ class StreetScene(
     val images: Map<String, ImageBitmap>,
     val interiorLotId: String?,
     val timeSec: Float,
-    val shopkeeper: Wanderer?,
+    /** Staff working in the shops (they serve customers and hand over service items). */
+    val staff: List<StaffMember> = emptyList(),
+    /** Services in progress, for the item handover. */
+    val services: List<ServiceView> = emptyList(),
     val effects: Map<String, Effect>,
     val selectedId: String?,
     val freeTileHints: Set<Pair<Int, Int>>?,
@@ -103,7 +108,18 @@ class CutoutItem(
     val displayed: List<DisplayedItem> = emptyList(),
     /** For someone sitting: only the part above this screen y is drawn (legs hidden by the seat). */
     val clipBottom: Float? = null,
+    /** A drawing held in the character's hand (e.g. a service item). */
+    val held: ImageBitmap? = null,
+    /** Whether the character faces right on screen (for which hand holds things). */
+    val facesRightOnScreen: Boolean = true,
 ) {
+    /** Where a held item sits: at the front hand, about halfway up the visible body. */
+    fun handPoint(): Offset {
+        val dir = if (facesRightOnScreen) 1f else -1f
+        val liftPx = pose.lift * size.height
+        return Offset(foot.x + dir * size.width * 0.34f, foot.y - size.height * 0.5f - liftPx)
+    }
+
     /** Screen area covered before animation, for hit testing. */
     val bounds: Rect
         get() = panel?.let { p ->
@@ -146,24 +162,7 @@ fun StreetScene.interiorCutouts(): List<CutoutItem> {
             displayed = displayedItems(sprite, piece, lot, Size(w, h), center.toOffset(), image, panel),
         )
     }
-    val keeper = shopkeeper
-    val keeperSprite = world.sprite(lot.business?.shopkeeperSpriteId)
-    val keeperImage = keeperSprite?.let { images[it.id] }
-    if (keeper != null && keeperSprite != null && keeperImage != null) {
-        val (w, h) = CutoutSizing.displaySize(keeperSprite, iso)
-        val foot = iso.gridToScreen(keeper.position.x, keeper.position.y).toOffset()
-        val base = if (keeper.isWalking) ProceduralAnimator.walk(keeper.distanceWalked) else ProceduralAnimator.idle(timeSec)
-        items += CutoutItem(
-            id = SHOPKEEPER_ID,
-            image = keeperImage,
-            foot = foot,
-            size = Size(w, h),
-            pose = base + effectPose(SHOPKEEPER_ID),
-            mirrored = keeper.facingRight != keeperSprite.facesRight,
-            depth = keeper.position.x + keeper.position.y,
-            shadow = ovalShadow(foot, w * 0.8f),
-        )
-    }
+    for (member in staff.filter { it.lotId == lot.id }) staffItem(member, lot)?.let(items::add)
     val furnitureById = items.associateBy { it.id }
     for (p in crowd.filter { it.insideLotId == lot.id }) {
         val seat = p.seatedOn?.let { furnitureById[it] }
@@ -231,6 +230,36 @@ private fun DrawScope.drawDisplayed(item: CutoutItem) {
     }
 }
 
+/** Drawing used for a member of staff (the shopkeeper's drawing for now). */
+private fun StreetScene.staffSprite(member: StaffMember, lot: Lot): SpriteAsset? = when (member.id) {
+    SHOPKEEPER_ID -> world.sprite(lot.business?.shopkeeperSpriteId)
+    else -> null
+}
+
+private fun StreetScene.offeringImage(lot: Lot, offeringId: String?): ImageBitmap? =
+    offeringId?.let { id -> lot.business?.offerings?.firstOrNull { it.id == id }?.spriteId }?.let { images[it] }
+
+private fun StreetScene.staffItem(member: StaffMember, lot: Lot): CutoutItem? {
+    val sprite = staffSprite(member, lot) ?: return null
+    val image = images[sprite.id] ?: return null
+    val (w, h) = CutoutSizing.displaySize(sprite, iso)
+    val foot = iso.gridToScreen(member.position.x, member.position.y).toOffset()
+    val base = if (member.isWalking) ProceduralAnimator.walk(member.distanceWalked) else ProceduralAnimator.idle(timeSec)
+    val mirrored = member.facingRight != sprite.facesRight
+    return CutoutItem(
+        id = member.id,
+        image = image,
+        foot = foot,
+        size = Size(w, h),
+        pose = base + effectPose(member.id),
+        mirrored = mirrored,
+        depth = member.position.x + member.position.y,
+        shadow = ovalShadow(foot, w * 0.8f),
+        held = offeringImage(lot, member.heldItem),
+        facesRightOnScreen = member.facingRight,
+    )
+}
+
 fun npcEffectId(p: Pedestrian) = "npc:${p.id}"
 
 /** A customer on the street (or in a shop) as a positioned cutout. */
@@ -251,6 +280,8 @@ fun StreetScene.pedestrianItem(p: Pedestrian): CutoutItem? {
         mirrored = p.facingRight != sprite.facesRight,
         depth = p.position.x + p.position.y,
         shadow = ovalShadow(foot, w * 0.8f),
+        held = p.insideLotId?.let(world::lot)?.let { offeringImage(it, p.heldItem) },
+        facesRightOnScreen = p.facingRight,
     )
 }
 
@@ -277,6 +308,8 @@ private fun StreetScene.seatedItem(p: Pedestrian, seat: CutoutItem, lot: Lot): C
         mirrored = base.mirrored,
         depth = seat.depth + 0.01f,
         shadow = {},
+        held = base.held,
+        facesRightOnScreen = base.facesRightOnScreen,
         clipBottom = seatY,
     )
 }
@@ -458,7 +491,8 @@ private fun DrawScope.drawInterior(scene: StreetScene, lot: Lot) {
     }
     drawPath(floor, Paper.Ink, style = thinLine)
 
-    for (item in scene.interiorCutouts()) {
+    val cutouts = scene.interiorCutouts()
+    for (item in cutouts) {
         val panel = item.panel
         if (panel != null) drawPanelCutout(item.image, panel, item.pose, item.shadow)
         else if (item.clipBottom != null) {
@@ -470,10 +504,12 @@ private fun DrawScope.drawInterior(scene: StreetScene, lot: Lot) {
             anchorX = item.anchorX, anchorY = item.anchorY,
         )
         drawDisplayed(item)
+        drawHeld(item)
         if (item.id == scene.selectedId && item.id == SHOPKEEPER_ID) {
             drawCircle(Paper.Accent, radius = 6f, center = item.foot.copy(y = item.foot.y - item.size.height - 14f))
         }
     }
+    drawHandovers(scene, lot, cutouts)
 
     // Low stubs where the front walls were cut away.
     val stub = 10f
@@ -492,6 +528,51 @@ private fun DrawScope.drawInterior(scene: StreetScene, lot: Lot) {
 }
 
 private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+
+/** Held items are drawn this tall relative to the character holding them. */
+private const val HELD_SCALE = 0.36f
+
+private fun heldSize(image: ImageBitmap, holderHeight: Float): Size {
+    val h = holderHeight * HELD_SCALE
+    return Size(h * image.width / image.height.coerceAtLeast(1), h)
+}
+
+/** Draws whatever a character is holding at their front hand, with a gentle bob. */
+private fun DrawScope.drawHeld(item: CutoutItem) {
+    val image = item.held ?: return
+    val size = heldSize(image, item.size.height)
+    val hand = item.handPoint()
+    drawCutout(image, Offset(hand.x, hand.y + size.height * 0.5f), size, CutoutPose.Rest, mirrored = false)
+}
+
+/**
+ * Service item handover: while a service starts or ends, the service's drawing arcs between the
+ * staff member's hand and the customer's.
+ */
+private fun DrawScope.drawHandovers(scene: StreetScene, lot: Lot, cutouts: List<CutoutItem>) {
+    val byId = cutouts.associateBy { it.id }
+    for (v in scene.services) {
+        if (v.customer.insideLotId != lot.id) continue
+        val giving = v.phase == ServicePhase.HANDING_OVER
+        if (!giving && v.phase != ServicePhase.HANDING_BACK) continue
+        val image = scene.offeringImage(lot, v.offeringId) ?: continue
+        val staffItem = v.staff?.let { byId[it.id] }
+        val customerItem = byId[npcEffectId(v.customer)]
+        val staffHand = staffItem?.handPoint() ?: v.staff?.let {
+            scene.iso.gridToScreen(it.position.x, it.position.y).toOffset() - Offset(0f, scene.iso.tileHeight)
+        } ?: continue
+        val customerHand = customerItem?.handPoint() ?: continue
+        val (from, to) = if (giving) staffHand to customerHand else customerHand to staffHand
+        val t = v.progress
+        val eased = t * t * (3f - 2f * t)
+        val arc = scene.iso.tileHeight * 0.8f * kotlin.math.sin(Math.PI.toFloat() * t)
+        val point = Offset(from.x + (to.x - from.x) * eased, from.y + (to.y - from.y) * eased - arc)
+        val holderHeight = customerItem.size.height
+        val size = heldSize(image, holderHeight)
+        val spin = 20f * kotlin.math.sin(Math.PI.toFloat() * 2f * t)
+        drawCutout(image, Offset(point.x, point.y + size.height * 0.5f), size, CutoutPose(rotationDeg = spin), mirrored = false)
+    }
+}
 
 /** Matches the upright furniture height cap in CutoutSizing. */
 private const val FURNITURE_MAX_HEIGHT_TILES = 4.2f

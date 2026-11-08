@@ -91,7 +91,6 @@ import com.blockparty.core.model.SpriteAsset
 import com.blockparty.core.model.SpriteKind
 import com.blockparty.core.model.WorldState
 import com.blockparty.core.sim.Placement
-import com.blockparty.core.sim.Wanderer
 import com.blockparty.core.world.WorldFactory
 import kotlinx.coroutines.launch
 import kotlin.math.min
@@ -121,11 +120,6 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
     var time by remember { mutableFloatStateOf(0f) }
 
     val freeTiles = remember(homeLot.furniture, world.sprites) { Placement.freeTiles(homeLot, world::sprite) }
-    val wanderer = remember(homeLot.id) {
-        Wanderer(Vec2(homeLot.rect.x + homeLot.rect.w / 2f, homeLot.rect.bottom - 0.5f))
-    }
-    val latestFree by rememberUpdatedState(freeTiles)
-    val isInterior by rememberUpdatedState(interior)
 
     // Customers: who can appear, and which shops they might walk into.
     val crowd = vm.crowd
@@ -152,7 +146,6 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
             val dt = ((now - last) / 1e9f).coerceIn(0f, 0.1f)
             last = now
             time = (now - start) / 1e9f
-            if (isInterior) wanderer.update(dt, latestFree)
             crowd.update(dt, world.street, latestDoors, latestPick)
         }
     }
@@ -165,7 +158,8 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
         images = vm.sprites.images,
         interiorLotId = if (interior) homeLot.id else null,
         timeSec = t,
-        shopkeeper = wanderer,
+        staff = crowd.staff,
+        services = crowd.services,
         effects = effects,
         selectedId = selectedId,
         freeTileHints = if (placing != null || movingId != null) freeTiles else null,
@@ -457,6 +451,7 @@ private fun shopDoor(world: WorldState, lot: Lot, free: Set<Pair<Int, Int>>): Sh
         offersServices = services,
         servicesOnly = services && business?.offerings.orEmpty().none { it.kind == OfferingKind.PRODUCT },
         browseSpots = browseSpots,
+        serviceIds = business?.offerings.orEmpty().filter { it.kind == OfferingKind.SERVICE }.map { it.id },
     )
 }
 

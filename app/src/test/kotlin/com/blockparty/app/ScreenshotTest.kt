@@ -15,6 +15,7 @@ import com.blockparty.core.model.CharacterRole
 import com.blockparty.core.model.OfferingKind
 import com.blockparty.core.model.FurnitureType
 import com.blockparty.core.model.TagLibrary
+import com.blockparty.core.npc.ServicePhase
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import com.blockparty.app.ui.BlockPartyApp
@@ -180,8 +181,12 @@ class ScreenshotTest {
         vm.setBusinessMode(com.blockparty.core.model.BusinessMode.BOTH)
         // Every starter tag, so passers-by are likely to come in and the test doesn't rely on luck.
         TagLibrary.byCategory(0).values.flatten().forEach { vm.toggleBusinessTag(it.id) }
+        vm.saveDrawing(SampleArt.scissors(), template(SpriteKind.PRODUCT, "Scissors"), DrawPurpose.FURNITURE)
+        vm.saveDrawing(SampleArt.person(), template(SpriteKind.CHARACTER, "Sam"), DrawPurpose.SHOPKEEPER)
+        vm.startPlacing(null)
+        val scissors = vm.world!!.sprites.first { it.name == "Scissors" }.id
         vm.startOffering(OfferingKind.SERVICE)
-        vm.updateDraft { it.copy(name = "Haircut") }
+        vm.updateDraft { it.copy(name = "Haircut", spriteId = scissors) }
         vm.saveDraft()
         assertEquals(FurnitureType.CHECKOUT, vm.world!!.sprite("starter-counter")!!.furnitureType)
         assertEquals(FurnitureType.SEATING, vm.world!!.sprite("starter-stool")!!.furnitureType)
@@ -197,12 +202,14 @@ class ScreenshotTest {
         snapshot("06_starter_street")
         compose.onNodeWithText("Go inside").performClick()
         // Run the shop for a while and catch someone sitting.
-        var sawSeated = false
-        for (i in 0 until 400) {
+        var sawService = false
+        for (i in 0 until 600) {
             advance(250)
-            if (vm.crowd.people.any { it.seatedOn != null && it.insideLotId != null }) { sawSeated = true; break }
+            val serving = vm.crowd.services.any { it.phase == ServicePhase.SERVING && it.progress > 0.2f }
+            if (serving) { sawService = true; break }
         }
-        assertTrue("someone sat on the stool or salon chair", sawSeated)
+        assertTrue("someone was served with the scissors", sawService)
+        assertTrue(vm.crowd.people.any { it.heldItem != null && it.seatedOn != null })
         snapshot("07_starter_interior")
         compose.runOnIdle { vm.navigate(Screen.DisplayEditor(table.id)) }
         advance(500)
@@ -307,6 +314,14 @@ private object SampleArt {
         drawRect(362f, 412f, 662f, 662f, pen(0xFF8C5A3C.toInt(), 12f))
         drawLine(362f, 537f, 662f, 537f, pen(0xFF8C5A3C.toInt(), 8f))
         drawCircle(512f, 474f, 26f, pen(0xFFE58BB8.toInt(), fill = true))
+    }
+
+    fun scissors() = canvas(200, 200) {
+        val blade = pen(0xFF8F897D.toInt(), 14f)
+        drawLine(60f, 150f, 160f, 30f, blade)
+        drawLine(140f, 150f, 40f, 30f, blade)
+        drawCircle(55f, 165f, 24f, pen(0xFFD9443A.toInt(), 10f))
+        drawCircle(145f, 165f, 24f, pen(0xFFD9443A.toInt(), 10f))
     }
 
     fun cake() = canvas(200, 180) {
