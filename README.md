@@ -127,6 +127,12 @@ minSdk 26 (Android 8.0), target/compile SDK 36.
 The screenshot test renders the real street, shop interior, shop editor and drawing screens
 with Robolectric native graphics and writes PNGs to `app/build/screenshots/`.
 
+## Status
+
+Paused before the backend: see [`docs/NEXT_STEPS.md`](docs/NEXT_STEPS.md). The Supabase project
+is going to become a shared database for several apps (done in a new chat with both repos),
+and the Block Party migration in `supabase/migrations/` hasn't been applied yet.
+
 ## Next up (from the spec's build order)
 
 5. Supabase backend: auth, shared streets, invite codes, offline catch-up.
