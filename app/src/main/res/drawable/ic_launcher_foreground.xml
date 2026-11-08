@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A little isometric shop block. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#CFC8B8" android:strokeColor="#5B564C" android:strokeWidth="2"
+        android:pathData="M54,30 L78,42 L54,54 L30,42 Z" />
+    <path android:fillColor="#FAF8F3" android:strokeColor="#5B564C" android:strokeWidth="2"
+        android:pathData="M30,42 L54,54 L54,78 L30,66 Z" />
+    <path android:fillColor="#E6E1D6" android:strokeColor="#5B564C" android:strokeWidth="2"
+        android:pathData="M54,54 L78,42 L78,66 L54,78 Z" />
+    <path android:fillColor="#E8735A" android:pathData="M37,58 L45,62 L45,73 L37,69 Z" />
+    <path android:fillColor="#4F86C6" android:pathData="M60,57 L72,51 L72,58 L60,64 Z" />
+</vector>

@@ -1,0 +1,424 @@
+package com.blockparty.app.ui.street
+
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Chair
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Flip
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.OpenWith
+import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import com.blockparty.app.DrawPurpose
+import com.blockparty.app.GameViewModel
+import com.blockparty.app.Screen
+import com.blockparty.app.ui.common.SpritePickerSheet
+import com.blockparty.app.ui.common.SpriteThumbnail
+import com.blockparty.app.ui.theme.Paper
+import com.blockparty.core.geometry.IsoProjection
+import com.blockparty.core.geometry.Vec2
+import com.blockparty.core.model.LotState
+import com.blockparty.core.model.SpriteAsset
+import com.blockparty.core.model.SpriteKind
+import com.blockparty.core.model.WorldState
+import com.blockparty.core.sim.Placement
+import com.blockparty.core.sim.Wanderer
+import com.blockparty.core.world.WorldFactory
+import kotlinx.coroutines.launch
+import kotlin.math.min
+
+private val iso = IsoProjection()
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun StreetScreen(vm: GameViewModel, world: WorldState) {
+    val scope = rememberCoroutineScope()
+    val snackbar = remember { SnackbarHostState() }
+    val textMeasurer = rememberTextMeasurer()
+    val homeLot = world.lot(WorldFactory.HOME_LOT_ID) ?: return
+
+    var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+    var pan by remember { mutableStateOf(Offset.Zero) }
+    var zoom by remember { mutableFloatStateOf(1f) }
+    var cameraReady by remember { mutableStateOf(false) }
+    var interior by remember { mutableStateOf(false) }
+    var selectedId by remember { mutableStateOf<String?>(null) }
+    var movingId by remember { mutableStateOf<String?>(null) }
+    var showPicker by remember { mutableStateOf(false) }
+    var flash by remember { mutableStateOf<Flash?>(null) }
+    val effects = remember { mutableStateMapOf<String, Effect>() }
+    var time by remember { mutableFloatStateOf(0f) }
+
+    val freeTiles = remember(homeLot.furniture, world.sprites) { Placement.freeTiles(homeLot, world::sprite) }
+    val wanderer = remember(homeLot.id) {
+        Wanderer(Vec2(homeLot.rect.x + homeLot.rect.w / 2f, homeLot.rect.bottom - 0.5f))
+    }
+    val latestFree by rememberUpdatedState(freeTiles)
+    val isInterior by rememberUpdatedState(interior)
+
+    // Placing new furniture always happens inside the shop.
+    val placing = vm.placingSpriteId
+    LaunchedEffect(placing) { if (placing != null) { interior = true; selectedId = null; movingId = null } }
+
+    LaunchedEffect(Unit) {
+        val start = withFrameNanosCompat()
+        var last = start
+        while (true) {
+            val now = withFrameNanosCompat()
+            val dt = ((now - last) / 1e9f).coerceIn(0f, 0.1f)
+            last = now
+            time = (now - start) / 1e9f
+            if (isInterior) wanderer.update(dt, latestFree)
+        }
+    }
+
+    // Built per frame inside the draw phase (reading `time` there only invalidates drawing,
+    // not the whole screen's composition).
+    fun sceneAt(t: Float) = StreetScene(
+        world = world,
+        iso = iso,
+        images = vm.sprites.images,
+        interiorLotId = if (interior) homeLot.id else null,
+        timeSec = t,
+        shopkeeper = wanderer,
+        effects = effects,
+        selectedId = selectedId,
+        freeTileHints = if (placing != null || movingId != null) freeTiles else null,
+        flash = flash,
+    )
+    val scene = sceneAt(0f) // time-independent queries: bounds for camera and taps
+
+    fun animateCamera(target: Rect, fill: Float) {
+        if (canvasSize == IntSize.Zero) return
+        val targetZoom = min(canvasSize.width * fill / target.width, canvasSize.height * 0.7f / target.height)
+            .coerceIn(MIN_ZOOM, MAX_ZOOM)
+        val targetPan = Offset(canvasSize.width / 2f, canvasSize.height * 0.48f) - target.center * targetZoom
+        val fromPan = pan
+        val fromZoom = zoom
+        scope.launch {
+            animate(0f, 1f, animationSpec = tween(450)) { v, _ ->
+                zoom = fromZoom + (targetZoom - fromZoom) * v
+                pan = fromPan + (targetPan - fromPan) * v
+            }
+        }
+    }
+
+    fun enterShop() {
+        interior = true
+        animateCamera(scene.lotBounds(homeLot), 0.9f)
+    }
+
+    fun exitToStreet() {
+        interior = false
+        selectedId = null
+        movingId = null
+        vm.startPlacing(null)
+        animateCamera(scene.worldBounds(), 0.95f)
+    }
+
+    fun trigger(id: String, type: EffectType) {
+        effects.filterValues { time - it.startSec > it.type.durationSec }.keys.forEach(effects::remove)
+        effects[id] = Effect(type, time)
+    }
+
+    // Origin tile for a footprint so it's roughly centered on the tapped tile.
+    fun originFor(sprite: SpriteAsset?, flipped: Boolean, tx: Int, ty: Int): Pair<Int, Int> {
+        val r = Placement.footprint(sprite, 0, 0, flipped)
+        return (tx - (r.w - 1) / 2) to (ty - (r.h - 1) / 2)
+    }
+
+    val onTap by rememberUpdatedState { pos: Offset ->
+        val p = (pos - pan) / zoom
+        if (!interior) {
+            val tile = iso.screenToTile(p.x, p.y)
+            val lot = world.street.lots.firstOrNull { it.rect.contains(tile.x, tile.y) }
+            when {
+                scene.lotBounds(homeLot).contains(p) && (lot == null || lot.id == homeLot.id) -> enterShop()
+                lot?.state == LotState.LOCKED -> scope.launch { snackbar.showSnackbar("This lot unlocks as the street grows.") }
+            }
+        } else {
+            val tile = iso.screenToTile(p.x, p.y)
+            val moving = movingId
+            when {
+                placing != null -> {
+                    val sprite = world.sprite(placing)
+                    val (ox, oy) = originFor(sprite, false, tile.x, tile.y)
+                    val placed = vm.placeFurniture(ox, oy)
+                    val rect = Placement.footprint(sprite, ox, oy, false)
+                    flash = Flash(rect, placed != null, time)
+                    if (placed != null) trigger(placed.id, EffectType.WOBBLE)
+                }
+                moving != null -> {
+                    val piece = homeLot.furniture.firstOrNull { it.id == moving }
+                    if (piece != null) {
+                        val sprite = world.sprite(piece.spriteId)
+                        val (ox, oy) = originFor(sprite, piece.flipped, tile.x, tile.y)
+                        val ok = vm.moveFurniture(moving, ox, oy)
+                        flash = Flash(Placement.footprint(sprite, ox, oy, piece.flipped), ok, time)
+                        if (ok) {
+                            trigger(moving, EffectType.WOBBLE)
+                            movingId = null
+                        }
+                    } else movingId = null
+                }
+                else -> when (val hit = sceneAt(time).hitTest(p)) {
+                    is Hit.Cutout -> {
+                        trigger(hit.id, EffectType.HOP)
+                        selectedId = hit.id
+                    }
+                    is Hit.Tile -> {
+                        if (selectedId == null && !homeLot.rect.contains(hit.x, hit.y) &&
+                            !scene.lotBounds(homeLot).contains(p)
+                        ) exitToStreet() else selectedId = null
+                    }
+                }
+            }
+        }
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Paper.Background)
+    ) {
+        Canvas(
+            Modifier
+                .fillMaxSize()
+                .onSizeChanged { size ->
+                    canvasSize = size
+                    if (!cameraReady && size.width > 0) {
+                        val b = scene.worldBounds()
+                        zoom = (size.width * 0.95f / b.width).coerceIn(MIN_ZOOM, MAX_ZOOM)
+                        pan = Offset(size.width / 2f, size.height * 0.48f) - b.center * zoom
+                        cameraReady = true
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectTransformGestures { centroid, panChange, zoomChange, _ ->
+                        val newZoom = (zoom * zoomChange).coerceIn(MIN_ZOOM, MAX_ZOOM)
+                        pan = centroid - (centroid - pan) * (newZoom / zoom) + panChange
+                        zoom = newZoom
+                    }
+                }
+                .pointerInput(Unit) { detectTapGestures { onTap(it) } }
+        ) {
+            translate(pan.x, pan.y) {
+                scale(zoom, pivot = Offset.Zero) {
+                    drawStreet(sceneAt(time), textMeasurer)
+                }
+            }
+        }
+
+        TopBar(
+            title = homeLot.business?.name?.ifBlank { null } ?: "My Shop",
+            subtitle = world.street.name + if (interior) " · inside" else "",
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
+
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            SnackbarHost(snackbar)
+            val selectedPiece = homeLot.furniture.firstOrNull { it.id == selectedId }
+            val keeperSprite = world.sprite(homeLot.business?.shopkeeperSpriteId)
+            when {
+                placing != null -> HintCard(
+                    sprite = world.sprite(placing),
+                    vm = vm,
+                    text = "Tap the floor to place it. Tap again to place another.",
+                    action = "Done",
+                    onAction = { vm.startPlacing(null) },
+                )
+                movingId != null -> HintCard(
+                    sprite = world.sprite(homeLot.furniture.firstOrNull { it.id == movingId }?.spriteId),
+                    vm = vm,
+                    text = "Tap where it should go.",
+                    action = "Cancel",
+                    onAction = { movingId = null },
+                )
+                selectedPiece != null -> {
+                    val sprite = world.sprite(selectedPiece.spriteId)
+                    SelectionCard(
+                        sprite = sprite,
+                        vm = vm,
+                        onClose = { selectedId = null },
+                    ) {
+                        TextButton(onClick = {
+                            if (vm.flipFurniture(selectedPiece.id)) trigger(selectedPiece.id, EffectType.WOBBLE)
+                            else scope.launch { snackbar.showSnackbar("No room to turn it around here.") }
+                        }) { Icon(Icons.Default.Flip, null); Spacer(Modifier.width(4.dp)); Text("Flip") }
+                        TextButton(onClick = { movingId = selectedPiece.id; selectedId = null }) {
+                            Icon(Icons.Default.OpenWith, null); Spacer(Modifier.width(4.dp)); Text("Move")
+                        }
+                        TextButton(onClick = { vm.removeFurniture(selectedPiece.id); selectedId = null }) {
+                            Icon(Icons.Default.Delete, null); Spacer(Modifier.width(4.dp)); Text("Remove")
+                        }
+                    }
+                }
+                selectedId == SHOPKEEPER_ID && keeperSprite != null ->
+                    SelectionCard(sprite = keeperSprite, vm = vm, onClose = { selectedId = null }) {}
+                interior -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FilledTonalIconButton(onClick = ::exitToStreet, modifier = Modifier.size(48.dp)) {
+                        Icon(Icons.Default.Map, "Back to street")
+                    }
+                    Button(onClick = { showPicker = true }) {
+                        Icon(Icons.Default.Chair, null); Spacer(Modifier.width(6.dp)); Text("Furniture", maxLines = 1)
+                    }
+                    FilledTonalButton(onClick = { vm.navigate(Screen.ShopEditor) }) {
+                        Icon(Icons.Default.Edit, null); Spacer(Modifier.width(6.dp)); Text("Shop", maxLines = 1)
+                    }
+                }
+                else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = ::enterShop) {
+                        Icon(Icons.Default.Storefront, null); Spacer(Modifier.width(6.dp)); Text("Go inside")
+                    }
+                    FilledTonalButton(onClick = { vm.navigate(Screen.ShopEditor) }) {
+                        Icon(Icons.Default.Edit, null); Spacer(Modifier.width(6.dp)); Text("Edit shop")
+                    }
+                }
+            }
+        }
+    }
+
+    if (showPicker) {
+        SpritePickerSheet(
+            title = "Furniture & decor",
+            sprites = world.sprites.filter { it.kind == SpriteKind.FURNITURE },
+            vm = vm,
+            drawLabel = "Draw new furniture",
+            onDismiss = { showPicker = false },
+            onPick = { vm.startPlacing(it.id); showPicker = false },
+            onDraw = {
+                showPicker = false
+                vm.navigate(Screen.Draw(SpriteKind.FURNITURE, DrawPurpose.FURNITURE))
+            },
+            onDelete = { vm.deleteSprite(it.id) },
+        )
+    }
+}
+
+private const val MIN_ZOOM = 0.15f
+private const val MAX_ZOOM = 4f
+
+/** Suspends until the next frame and returns its timestamp in nanoseconds. */
+private suspend fun withFrameNanosCompat(): Long = androidx.compose.runtime.withFrameNanos { it }
+
+@Composable
+private fun TopBar(title: String, subtitle: String, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier
+            .statusBarsPadding()
+            .padding(12.dp),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        shadowElevation = 2.dp,
+    ) {
+        Column(Modifier.padding(horizontal = 18.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun HintCard(sprite: SpriteAsset?, vm: GameViewModel, text: String, action: String, onAction: () -> Unit) {
+    Card(Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (sprite != null) SpriteThumbnail(vm.sprites.images[sprite.id], Modifier.size(48.dp))
+            Spacer(Modifier.width(12.dp))
+            Text(text, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            Button(onClick = onAction) { Text(action) }
+        }
+    }
+}
+
+@Composable
+private fun SelectionCard(
+    sprite: SpriteAsset?,
+    vm: GameViewModel,
+    onClose: () -> Unit,
+    actions: @Composable () -> Unit,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (sprite != null) SpriteThumbnail(vm.sprites.images[sprite.id], Modifier.size(48.dp))
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(sprite?.name?.ifBlank { null } ?: "Untitled", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        creditLine(sprite),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Close") }
+            }
+            Row { actions() }
+        }
+    }
+}
+
+/** Artist credit, honouring the artist's choice to stay anonymous. */
+fun creditLine(sprite: SpriteAsset?): String =
+    if (sprite != null && sprite.showCredit && sprite.artistName.isNotBlank()) "Drawn by ${sprite.artistName}"
+    else "Anonymous artist"

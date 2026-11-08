@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.BlockParty" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/paper</item>
+    </style>
+    <color name="paper">#F3EFE6</color>
+    <color name="launcher_bg">#F3EFE6</color>
+</resources>
