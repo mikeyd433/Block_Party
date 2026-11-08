@@ -5,11 +5,13 @@ import android.graphics.Bitmap
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.blockparty.app.data.SpriteStore
 import com.blockparty.app.data.WorldRepository
+import com.blockparty.core.art.ImageOps
 import com.blockparty.core.model.Business
 import com.blockparty.core.model.FurniturePlacement
 import com.blockparty.core.model.Lot
@@ -66,6 +68,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
                 loaded.sprites.mapNotNull { s -> sprites.decode(s.id)?.let { s.id to it } }
             }
             sprites.images.putAll(decoded)
+            fixFloatingBoxes()
         }
         viewModelScope.launch(Dispatchers.IO) {
             saveRequests.consumeAsFlow().collect { repository.save(it) }
@@ -73,6 +76,32 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     val homeLot: Lot? get() = world?.lot(WorldFactory.HOME_LOT_ID)
+
+    /**
+     * Furniture turned into 3D before base points were recorded still rests on the bottom of its
+     * picture and looks like it's floating. Find the base from the drawing's shape and fix it.
+     */
+    private suspend fun fixFloatingBoxes() {
+        val candidates = world?.sprites.orEmpty().filter {
+            it.kind == SpriteKind.FURNITURE && !it.alignToGrid && it.groundX == 0.5f && it.groundY == 1f
+        }
+        if (candidates.isEmpty()) return
+        val fixes = withContext(Dispatchers.Default) {
+            candidates.mapNotNull { sprite ->
+                val bitmap = sprites.images[sprite.id]?.asAndroidBitmap() ?: return@mapNotNull null
+                val w = bitmap.width
+                val h = bitmap.height
+                val pixels = IntArray(w * h).also { bitmap.getPixels(it, 0, w, 0, 0, w, h) }
+                ImageOps.estimateBoxBase(pixels, w, h)?.let { (x, y) -> sprite.id to (x / w to y / h) }
+            }.toMap()
+        }
+        if (fixes.isEmpty()) return
+        update { w ->
+            w.copy(sprites = w.sprites.map { s ->
+                fixes[s.id]?.let { (gx, gy) -> s.copy(groundX = gx, groundY = gy) } ?: s
+            })
+        }
+    }
 
     private fun update(transform: (WorldState) -> WorldState) {
         val current = world ?: return

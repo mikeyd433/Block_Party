@@ -19,6 +19,7 @@ import com.blockparty.core.model.SpriteAsset
 import com.blockparty.core.model.SpriteKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -107,6 +108,29 @@ class ScreenshotTest {
         compose.onNodeWithText("Furniture").performClick()
         advance(800)
         compose.onNodeWithText("Draw new furniture").assertExists() // sheet is its own window
+    }
+
+    @Test
+    fun oldTurnedFurnitureIsGroundedOnLoad() {
+        val vm = newViewModel()
+        val crate = DrawingExport.addDepth(SampleArt.crateFront(), 0.6f, Facing.LEFT)!!
+        val bitmap = DrawingExport.cropAndScale(crate.bitmap)!!
+        // Saved the old way: no base point, so it would rest on the bottom of the picture.
+        vm.saveDrawing(bitmap, template(SpriteKind.FURNITURE, "Old crate").copy(alignToGrid = false), DrawPurpose.FURNITURE)
+        vm.saveDrawing(SampleArt.plant(), template(SpriteKind.FURNITURE, "Upright plant").copy(alignToGrid = false), DrawPurpose.FURNITURE)
+        repeat(20) { Thread.sleep(25); ShadowLooper.idleMainLooper() } // let saves finish
+
+        val reloaded = newViewModel()
+        var crateSprite = reloaded.world!!.sprites.first { it.name == "Old crate" }
+        repeat(50) {
+            if (crateSprite.groundY == 1f) {
+                Thread.sleep(20); ShadowLooper.idleMainLooper()
+                crateSprite = reloaded.world!!.sprites.first { it.name == "Old crate" }
+            }
+        }
+        assertTrue("crate base found: ${crateSprite.groundX}, ${crateSprite.groundY}", crateSprite.groundY < 0.9f)
+        val plant = reloaded.world!!.sprites.first { it.name == "Upright plant" }
+        assertEquals(1f, plant.groundY)
     }
 
     @Test

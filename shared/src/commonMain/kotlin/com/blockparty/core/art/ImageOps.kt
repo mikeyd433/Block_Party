@@ -107,6 +107,50 @@ object ImageOps {
         return out
     }
 
+    /**
+     * Finds the centre of the base of a drawing that was turned into an isometric box, from its
+     * shape alone. The bottom outline of such a box runs from one end down to its lowest corner
+     * and back up, both at the isometric slope (1:2). The two ends of that outline are opposite
+     * corners of the base, so the base centre is halfway between them.
+     *
+     * Returns pixel coordinates, or null when the bottom outline isn't box-shaped (for example
+     * a flat drawing standing upright), so callers can leave those alone.
+     */
+    fun estimateBoxBase(pixels: IntArray, width: Int, height: Int, alphaThreshold: Int = 32): Pair<Float, Float>? {
+        // Lowest opaque pixel in each column.
+        val bottom = IntArray(width) { -1 }
+        for (x in 0 until width) {
+            for (y in height - 1 downTo 0) {
+                if (alpha(pixels[y * width + x]) > alphaThreshold) { bottom[x] = y; break }
+            }
+        }
+        val cols = bottom.indices.filter { bottom[it] >= 0 }
+        if (cols.size < 8) return null
+        val left = cols.first()
+        val right = cols.last()
+        val span = right - left
+        if (span < 8) return null
+        // Average a few columns at each end to steady rounded stroke ends.
+        val edge = (span / 25).coerceIn(1, 6)
+        fun lowestNear(range: IntRange): Float {
+            val ys = range.filter { it in 0 until width && bottom[it] >= 0 }.map { bottom[it] }
+            return ys.maxOrNull()?.toFloat() ?: -1f
+        }
+        val leftY = lowestNear(left until left + edge)
+        val rightY = lowestNear(right - edge + 1..right)
+        val corner = cols.maxBy { bottom[it] }
+        val cornerY = bottom[corner].toFloat()
+        val leftRun = corner - left
+        val rightRun = right - corner
+        if (leftRun < span * 0.12f || rightRun < span * 0.12f) return null
+        val leftSlope = (cornerY - leftY) / leftRun
+        val rightSlope = (cornerY - rightY) / rightRun
+        val iso = 0.5f
+        val tolerance = 0.2f
+        if (abs(leftSlope - iso) > tolerance || abs(rightSlope - iso) > tolerance) return null
+        return (left + right) / 2f to (leftY + rightY) / 2f
+    }
+
     /** Most common (coarsely quantised) opaque colour on the image border. */
     internal fun dominantBorderColor(pixels: IntArray, width: Int, height: Int): Int {
         val counts = HashMap<Int, Int>()
