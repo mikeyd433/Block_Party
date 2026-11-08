@@ -59,6 +59,11 @@ import com.blockparty.core.model.Offering
 import com.blockparty.core.model.OfferingKind
 import com.blockparty.core.model.SupplyTier
 import com.blockparty.core.sim.Economy
+import com.blockparty.core.sim.Lots
+import com.blockparty.core.model.Lot
+import com.blockparty.core.model.LotState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import com.blockparty.core.model.SpriteKind
 import com.blockparty.core.model.TagLibrary
@@ -75,9 +80,12 @@ private fun Section(title: String, content: @Composable () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShopEditorScreen(vm: GameViewModel, world: WorldState) {
-    val lot = vm.homeLot ?: return
-    val business = lot.business ?: Business(name = "My Shop")
+    val lot = vm.currentLot ?: return
+    val business = lot.business ?: run { vm.back(); return }
     var showFacadePicker by remember { mutableStateOf(false) }
+    var confirmClose by remember { mutableStateOf(false) }
+    var expandTarget by remember { mutableStateOf<Lot?>(null) }
+    var message by remember { mutableStateOf<String?>(null) }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -177,8 +185,64 @@ fun ShopEditorScreen(vm: GameViewModel, world: WorldState) {
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+            HorizontalDivider()
+
+            Section("Shop space") {
+                Text(
+                    "${lot.rect.w}×${lot.rect.h} tiles · rent ${Economy.rentPerDay(lot, world.street)}¢ a day",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                for (side in listOf(-1, 1)) {
+                    val other = Lots.neighbour(world, lot, side) ?: continue
+                    val cost = Lots.mergeCost(world, lot, other) ?: continue
+                    val where = if (side < 0) "west" else "east"
+                    OutlinedButton(onClick = { expandTarget = other }, modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            if (other.state == LotState.OWNED) "Merge with your shop to the $where"
+                            else "Expand into the lot to the $where ($cost¢)"
+                        )
+                    }
+                }
+                message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                OutlinedButton(
+                    onClick = { confirmClose = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Close this business") }
+            }
             Spacer(Modifier.height(32.dp))
         }
+    }
+
+    if (confirmClose) {
+        AlertDialog(
+            onDismissRequest = { confirmClose = false },
+            title = { Text("Close ${business.name.ifBlank { "this shop" }}?") },
+            text = { Text("Its furniture goes to your storage and the lot becomes vacant. Products, stock and reviews are lost.") },
+            confirmButton = { TextButton(onClick = { confirmClose = false; vm.closeCurrentBusiness() }) { Text("Close business") } },
+            dismissButton = { TextButton(onClick = { confirmClose = false }) { Text("Keep it open") } },
+        )
+    }
+
+    expandTarget?.let { other ->
+        val otherBusiness = other.business
+        AlertDialog(
+            onDismissRequest = { expandTarget = null },
+            title = { Text(if (otherBusiness != null) "Merge shops?" else "Expand the shop?") },
+            text = {
+                Text(
+                    if (otherBusiness != null) "${otherBusiness.name.ifBlank { "Your other shop" }} joins this one. Its furniture stays where it is and its products and services move here."
+                    else "Buy the lot next door for ${Lots.mergeCost(world, lot, other)}¢ and make this shop bigger. Rent grows with the size."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    expandTarget = null
+                    message = vm.expandInto(other.id)
+                }) { Text(if (otherBusiness != null) "Merge" else "Expand") }
+            },
+            dismissButton = { TextButton(onClick = { expandTarget = null }) { Text("Cancel") } },
+        )
     }
 
     if (showFacadePicker) {
@@ -216,7 +280,7 @@ private fun OfferingRow(vm: GameViewModel, offering: Offering, onClick: () -> Un
             Column(horizontalAlignment = Alignment.End) {
                 Text("${offering.priceCoins} ¢", style = MaterialTheme.typography.titleMedium)
                 if (offering.kind == OfferingKind.PRODUCT) {
-                    val lot = vm.homeLot
+                    val lot = vm.currentLot
                     val world = vm.world
                     if (lot != null && world != null) {
                         val cap = Economy.capacity(offering, lot, world::sprite)
@@ -238,8 +302,8 @@ private fun OfferingRow(vm: GameViewModel, offering: Offering, onClick: () -> Un
 @Composable
 fun OfferingEditorScreen(vm: GameViewModel, world: WorldState) {
     val draft = vm.offeringDraft ?: return
-    val isNew = vm.homeLot?.business?.offerings?.none { it.id == draft.id } ?: true
-    val mode = vm.homeLot?.business?.mode ?: BusinessMode.PRODUCTS
+    val isNew = vm.currentLot?.business?.offerings?.none { it.id == draft.id } ?: true
+    val mode = vm.currentLot?.business?.mode ?: BusinessMode.PRODUCTS
     var priceText by remember(draft.id) { mutableStateOf(draft.priceCoins.toString()) }
     var showPicker by remember { mutableStateOf(false) }
     val noun = if (draft.kind == OfferingKind.SERVICE) "service" else "product"

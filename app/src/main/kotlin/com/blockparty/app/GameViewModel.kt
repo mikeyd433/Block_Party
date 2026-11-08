@@ -20,6 +20,8 @@ import com.blockparty.core.model.DisplaySpot
 import com.blockparty.core.model.FurnitureType
 import com.blockparty.core.sim.DisplayStock
 import com.blockparty.core.sim.Economy
+import com.blockparty.core.sim.Lots
+import com.blockparty.core.model.LotState
 import com.blockparty.core.model.CharacterRole
 import com.blockparty.core.npc.NpcGenerator
 import com.blockparty.core.npc.StreetCrowd
@@ -97,7 +99,19 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    val homeLot: Lot? get() = world?.lot(WorldFactory.HOME_LOT_ID)
+    /** The shop the player is looking at / editing. */
+    var currentLotId by mutableStateOf(WorldFactory.HOME_LOT_ID)
+        private set
+
+    val currentLot: Lot?
+        get() = world?.let { w ->
+            w.lot(currentLotId) ?: w.street.lots.firstOrNull { it.state == LotState.OWNED } ?: w.street.lots.firstOrNull()
+        }
+
+    fun selectLot(lotId: String) {
+        currentLotId = lotId
+        placingSpriteId = null
+    }
 
     /** Messages to show the player (bills while away, debt warnings, closures). */
     var notices by mutableStateOf<List<String>>(emptyList())
@@ -106,6 +120,10 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     fun dismissNotices() {
         notices = emptyList()
     }
+
+    /** Test hook: replace the whole world. */
+    @androidx.annotation.VisibleForTesting
+    fun debugReplaceWorld(w: WorldState) = update { w }
 
     /** Today in the street's timezone, as days since 1970-01-01. */
     fun today(): Long {
@@ -125,7 +143,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     /** Fills a product back up to its shelf capacity, paying the supplier. */
     fun restock(offeringId: String) {
         val w = world ?: return
-        val lot = homeLot ?: return
+        val lot = currentLot ?: return
         val offering = lot.business?.offerings?.firstOrNull { it.id == offeringId } ?: return
         val (units, cost) = Economy.restockNeed(offering, lot, w::sprite)
         if (units <= 0) return
@@ -139,13 +157,13 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun restockAll() {
-        homeLot?.business?.offerings?.filter { it.kind == OfferingKind.PRODUCT }?.forEach { restock(it.id) }
+        currentLot?.business?.offerings?.filter { it.kind == OfferingKind.PRODUCT }?.forEach { restock(it.id) }
     }
 
     /** Total units and coins to restock every product. */
     fun restockAllNeed(): Pair<Int, Long> {
         val w = world ?: return 0 to 0L
-        val lot = homeLot ?: return 0 to 0L
+        val lot = currentLot ?: return 0 to 0L
         return lot.business?.offerings.orEmpty().map { Economy.restockNeed(it, lot, w::sprite) }
             .fold(0 to 0L) { acc, (u, c) -> acc.first + u to acc.second + c }
     }
@@ -154,7 +172,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun ensureStarterSet() {
         val current = world ?: return
         if (current.starterSetVersion >= StarterSet.VERSION) return
-        val lotWidth = homeLot?.rect?.w ?: WorldFactory.LOT_WIDTH
+        val lotWidth = currentLot?.rect?.w ?: WorldFactory.LOT_WIDTH
         val items = withContext(Dispatchers.Default) { StarterSet.generate(lotWidth) }
         val existing = current.sprites.map { it.id }.toSet()
         val added = items.filter { it.asset.id !in existing }
@@ -215,10 +233,44 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         saveRequests.trySend(next)
     }
 
-    private fun updateHomeLot(transform: (Lot) -> Lot) = update { it.updateLot(WorldFactory.HOME_LOT_ID, transform) }
+    private fun updateCurrentLot(transform: (Lot) -> Lot) {
+        val id = currentLot?.id ?: return
+        update { it.updateLot(id, transform) }
+    }
 
     private fun updateBusiness(transform: (Business) -> Business) =
-        updateHomeLot { lot -> lot.copy(business = transform(lot.business ?: Business(name = "My Shop"))) }
+        updateCurrentLot { lot ->
+            val business = lot.business
+            if (lot.state != LotState.OWNED || business == null) lot else lot.copy(business = transform(business))
+        }
+
+    // --- Lots: buying, closing, merging ---------------------------------------------------------
+
+    /** Buys a vacant lot and opens a new shop there. Returns an error message, or null on success. */
+    fun buyLot(lotId: String): String? {
+        val w = world ?: return null
+        return when (val r = Lots.buy(w, lotId, today())) {
+            is Lots.Result.Ok -> { update { r.world }; selectLot(lotId); null }
+            is Lots.Result.Failed -> r.reason
+        }
+    }
+
+    /** Closes the current shop: furniture to storage, lot vacant. */
+    fun closeCurrentBusiness() {
+        val id = currentLot?.id ?: return
+        update { Economy.closeBusiness(it, id) }
+        back()
+    }
+
+    /** Expands the current shop into a neighbouring lot. Returns an error message, or null on success. */
+    fun expandInto(otherLotId: String): String? {
+        val w = world ?: return null
+        val id = currentLot?.id ?: return null
+        return when (val r = Lots.merge(w, id, otherLotId, today())) {
+            is Lots.Result.Ok -> { update { r.world }; null }
+            is Lots.Result.Failed -> r.reason
+        }
+    }
 
     // --- Navigation ---------------------------------------------------------------------------
 
@@ -388,34 +440,37 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     /** Places the current furniture at a tile. Returns the new placement, or null if it doesn't fit. */
     fun placeFurniture(tileX: Int, tileY: Int): FurniturePlacement? {
         val w = world ?: return null
-        val lot = homeLot ?: return null
+        val lot = currentLot ?: return null
         val spriteId = placingSpriteId ?: return null
         val rect = Placement.footprint(w.sprite(spriteId), tileX, tileY, flipped = false)
         if (!Placement.canPlace(lot, rect, w::sprite)) return null
         val placement = FurniturePlacement(newId(), spriteId, tileX, tileY)
-        updateHomeLot { it.copy(furniture = it.furniture + placement) }
+        updateCurrentLot { it.copy(furniture = it.furniture + placement) }
+        // Use up a stored copy first, if there is one.
+        val stored = w.storage.indexOf(spriteId)
+        if (stored >= 0) update { it.copy(storage = it.storage.toMutableList().apply { removeAt(stored) }) }
         return placement
     }
 
     /** Moves a placed piece so its origin is at the tile, if it fits there. */
     fun moveFurniture(id: String, tileX: Int, tileY: Int): Boolean {
         val w = world ?: return false
-        val lot = homeLot ?: return false
+        val lot = currentLot ?: return false
         val piece = lot.furniture.firstOrNull { it.id == id } ?: return false
         val rect = Placement.footprint(w.sprite(piece.spriteId), tileX, tileY, piece.flipped)
         if (!Placement.canPlace(lot, rect, w::sprite, ignoreId = id)) return false
-        updateHomeLot { l -> l.copy(furniture = l.furniture.map { if (it.id == id) it.copy(x = tileX, y = tileY) else it }) }
+        updateCurrentLot { l -> l.copy(furniture = l.furniture.map { if (it.id == id) it.copy(x = tileX, y = tileY) else it }) }
         return true
     }
 
     /** Mirrors a piece (which transposes its footprint). Returns false if the mirrored piece wouldn't fit. */
     fun flipFurniture(id: String): Boolean {
         val w = world ?: return false
-        val lot = homeLot ?: return false
+        val lot = currentLot ?: return false
         val piece = lot.furniture.firstOrNull { it.id == id } ?: return false
         val rect = Placement.footprint(w.sprite(piece.spriteId), piece.x, piece.y, !piece.flipped)
         if (!Placement.canPlace(lot, rect, w::sprite, ignoreId = id)) return false
-        updateHomeLot { l -> l.copy(furniture = l.furniture.map { if (it.id == id) it.copy(flipped = !it.flipped) else it }) }
+        updateCurrentLot { l -> l.copy(furniture = l.furniture.map { if (it.id == id) it.copy(flipped = !it.flipped) else it }) }
         return true
     }
 
@@ -438,7 +493,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Puts a product on a spot of one placed piece, or empties the spot (null). */
-    fun setStock(placementId: String, spotId: String, offeringId: String?) = updateHomeLot { l ->
+    fun setStock(placementId: String, spotId: String, offeringId: String?) = updateCurrentLot { l ->
         l.copy(furniture = l.furniture.map { p ->
             if (p.id != placementId) p
             else p.copy(stock = if (offeringId == null) p.stock - spotId else p.stock + (spotId to offeringId))
@@ -448,16 +503,21 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     /** Fills a placed display piece's empty spots with the shop's products. */
     fun autoFillStock(placementId: String) {
         val w = world ?: return
-        val lot = homeLot ?: return
+        val lot = currentLot ?: return
         val piece = lot.furniture.firstOrNull { it.id == placementId } ?: return
         val spots = w.sprite(piece.spriteId)?.displaySpots.orEmpty()
         val products = lot.business?.offerings.orEmpty()
             .filter { it.kind == com.blockparty.core.model.OfferingKind.PRODUCT }.map { it.id }
         val filled = DisplayStock.autoFill(spots, piece.stock, products)
-        updateHomeLot { l -> l.copy(furniture = l.furniture.map { if (it.id == placementId) it.copy(stock = filled) else it }) }
+        updateCurrentLot { l -> l.copy(furniture = l.furniture.map { if (it.id == placementId) it.copy(stock = filled) else it }) }
     }
 
-    fun removeFurniture(id: String) = updateHomeLot { l -> l.copy(furniture = l.furniture.filterNot { it.id == id }) }
+    /** Picks a piece up into storage. */
+    fun removeFurniture(id: String) {
+        val piece = currentLot?.furniture?.firstOrNull { it.id == id } ?: return
+        updateCurrentLot { l -> l.copy(furniture = l.furniture.filterNot { it.id == id }) }
+        update { it.copy(storage = it.storage + piece.spriteId) }
+    }
 
     private fun newId() = UUID.randomUUID().toString()
 }

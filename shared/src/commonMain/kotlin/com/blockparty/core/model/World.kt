@@ -174,8 +174,10 @@ data class DayBook(
     val rent: Long = 0,
     val wages: Long = 0,
     val supplies: Long = 0,
+    /** Buying lots (and, later, shops). */
+    val property: Long = 0,
 ) {
-    val net: Long get() = sales - rent - wages - supplies
+    val net: Long get() = sales - rent - wages - supplies - property
 }
 
 @Serializable
@@ -322,7 +324,7 @@ data class WorldState(
         copy(street = street.copy(lots = street.lots.map { if (it.id == id) transform(it) else it }))
 
     companion object {
-        const val CURRENT_VERSION = 1
+        const val CURRENT_VERSION = 2
         const val STARTING_COINS = 100L
     }
 }

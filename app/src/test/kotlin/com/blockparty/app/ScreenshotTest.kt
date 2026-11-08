@@ -85,7 +85,7 @@ class ScreenshotTest {
         vm.saveDrawing(SampleArt.facade(), template(SpriteKind.FACADE, "Cake front"), DrawPurpose.FACADE)
         vm.saveDrawing(SampleArt.person(), template(SpriteKind.CHARACTER, "Sam"), DrawPurpose.SHOPKEEPER)
         vm.saveDrawing(SampleArt.table(), template(SpriteKind.FURNITURE, "Table", 2, 1), DrawPurpose.FURNITURE)
-        val lot = vm.homeLot!!.rect
+        val lot = vm.currentLot!!.rect
         assertNotNull(vm.placeFurniture(lot.x + 1, lot.y + 1))
         val bench = vm.placeFurniture(lot.x + 3, lot.y + 3)!!
         assert(vm.flipFurniture(bench.id)) // runs along the other floor axis
@@ -105,7 +105,7 @@ class ScreenshotTest {
         )
         assertNotNull(vm.placeFurniture(lot.x + 4, lot.y + 4))
         vm.startPlacing(null)
-        assertEquals(5, vm.homeLot!!.furniture.size)
+        assertEquals(5, vm.currentLot!!.furniture.size)
 
         vm.saveDrawing(SampleArt.person(), template(SpriteKind.CHARACTER, "Sam's customer"), DrawPurpose.CUSTOMER)
 
@@ -154,7 +154,7 @@ class ScreenshotTest {
         val vm = newViewModel()
         vm.setBusinessName("Starter Store")
         vm.setFacade("starter-facade-awning")
-        val lot = vm.homeLot!!.rect
+        val lot = vm.currentLot!!.rect
         for ((id, x, y) in listOf(
             Triple("starter-bookshelf", lot.x + 1, lot.y),
             Triple("starter-counter", lot.x + 3, lot.y + 2),
@@ -192,16 +192,16 @@ class ScreenshotTest {
         assertEquals(FurnitureType.CHECKOUT, vm.world!!.sprite("starter-counter")!!.furnitureType)
         assertEquals(FurnitureType.SEATING, vm.world!!.sprite("starter-stool")!!.furnitureType)
         assertEquals(FurnitureType.SERVICE_STATION, vm.world!!.sprite("starter-salon-chair")!!.furnitureType)
-        val table = vm.homeLot!!.furniture.first { it.spriteId == "starter-display" }
+        val table = vm.currentLot!!.furniture.first { it.spriteId == "starter-display" }
         assertEquals(3, vm.world!!.sprite("starter-display")!!.displaySpots.size)
         vm.autoFillStock(table.id)
-        assertEquals(3, vm.homeLot!!.furniture.first { it.id == table.id }.stock.size)
+        assertEquals(3, vm.currentLot!!.furniture.first { it.id == table.id }.stock.size)
         // New products start empty: buy stock from the supplier (2 spots of cake, 1 of jam).
-        assertEquals(0, vm.homeLot!!.business!!.offerings.first { it.name == "Cake" }.stock)
+        assertEquals(0, vm.currentLot!!.business!!.offerings.first { it.name == "Cake" }.stock)
         val (units, cost) = vm.restockAllNeed()
         assertEquals(15, units)
         vm.restockAll()
-        assertEquals(10, vm.homeLot!!.business!!.offerings.first { it.name == "Cake" }.stock)
+        assertEquals(10, vm.currentLot!!.business!!.offerings.first { it.name == "Cake" }.stock)
         assertEquals(100L - cost, vm.world!!.coins)
 
         compose.mainClock.autoAdvance = false
@@ -242,11 +242,54 @@ class ScreenshotTest {
         compose.onNodeWithText("On display").assertExists()
         snapshot("08_display_editor")
         compose.runOnIdle { vm.back() }
-        val chair = vm.homeLot!!.furniture.first { it.spriteId == "starter-salon-chair" }
+        val chair = vm.currentLot!!.furniture.first { it.spriteId == "starter-salon-chair" }
         compose.runOnIdle { vm.navigate(Screen.DisplayEditor(chair.id)) }
         advance(500)
         compose.onNodeWithText("Seat height").assertExists()
         snapshot("09_seat_setup")
+    }
+
+    @Test
+    fun multipleShopsClosingAndMerging() {
+        val vm = newViewModel()
+        // Buy the west lot: a second shop.
+        assertEquals("You need ${com.blockparty.core.sim.Lots.price(vm.world!!.lot("lot-west")!!, vm.world!!)} coins to buy this lot.", vm.buyLot("lot-west"))
+        compose.runOnIdle { } // no-op: just making sure we're on the main thread
+        vm.recordEvents(emptyList())
+        val rich = vm.world!!.copy(coins = 5000)
+        vm.debugReplaceWorld(rich)
+        assertEquals(null, vm.buyLot("lot-west"))
+        assertEquals("lot-west", vm.currentLot!!.id)
+        vm.setBusinessName("West Wing")
+        vm.selectLot(WorldFactory.HOME_LOT_ID)
+        vm.setBusinessName("Home Shop")
+        assertEquals("West Wing", vm.world!!.lot("lot-west")!!.business!!.name)
+        // Furniture removed goes to storage, and is used up when placed again.
+        vm.startPlacing("starter-plant")
+        val placed = vm.placeFurniture(vm.currentLot!!.rect.x, vm.currentLot!!.rect.y)!!
+        vm.removeFurniture(placed.id)
+        assertEquals(listOf("starter-plant"), vm.world!!.storage)
+        vm.startPlacing("starter-plant")
+        vm.placeFurniture(vm.currentLot!!.rect.x, vm.currentLot!!.rect.y)
+        assertTrue(vm.world!!.storage.isEmpty())
+        vm.startPlacing(null)
+        vm.setFacade("starter-facade-brick")
+        compose.mainClock.autoAdvance = false
+        compose.setContent { BlockPartyTheme { BlockPartyApp(vm) } }
+        advance(500)
+        snapshot("10_two_shops")
+        // Merge the two shops.
+        compose.runOnIdle { assertEquals(null, vm.expandInto("lot-west")) }
+        assertEquals(null, vm.world!!.lot("lot-west"))
+        assertEquals(13, vm.currentLot!!.rect.w)
+        advance(500)
+        snapshot("11_merged_shop")
+        compose.runOnIdle { }
+        // Close it.
+        vm.navigate(Screen.ShopEditor)
+        vm.closeCurrentBusiness()
+        assertEquals(com.blockparty.core.model.LotState.VACANT, vm.world!!.lot(WorldFactory.HOME_LOT_ID)!!.state)
+        assertTrue(vm.world!!.storage.contains("starter-plant"))
     }
 
     @Test

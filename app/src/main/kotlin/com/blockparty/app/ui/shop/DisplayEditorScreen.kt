@@ -94,7 +94,7 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun DisplayEditorScreen(vm: GameViewModel, world: WorldState, placementId: String) {
-    val lot = vm.homeLot ?: return
+    val lot = vm.currentLot ?: return
     val piece = lot.furniture.firstOrNull { it.id == placementId } ?: run { vm.back(); return }
     val sprite = world.sprite(piece.spriteId) ?: run { vm.back(); return }
     val image = vm.sprites.images[sprite.id]

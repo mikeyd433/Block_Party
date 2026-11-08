@@ -98,6 +98,8 @@ fun SpritePickerSheet(
     onPick: (SpriteAsset) -> Unit,
     onDraw: () -> Unit,
     onDelete: ((SpriteAsset) -> Unit)? = null,
+    /** Small labels shown on some drawings (e.g. how many are in storage). */
+    badges: Map<String, String> = emptyMap(),
 ) {
     var confirmDelete by remember { mutableStateOf<SpriteAsset?>(null) }
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -151,6 +153,9 @@ fun SpritePickerSheet(
                             style = MaterialTheme.typography.labelMedium,
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
+                        badges[sprite.id]?.let {
+                            Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        }
                     }
                 }
             }

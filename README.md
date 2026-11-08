@@ -5,7 +5,7 @@ business can be anything the player wants. Nearly everything in the world is dra
 players and stands in the scene as a flat paper cutout. The full design is in
 [`docs/SPEC.md`](docs/SPEC.md).
 
-Build stages 1–4 are done: a single-player street prototype with drawn customers who walk the
+Build stages 1–4 and 6 are done: a single-player street prototype with drawn customers who walk the
 street, shop by their tastes and budget, pay, and leave reviews, plus running costs and debt.
 
 ## What works so far
@@ -63,6 +63,12 @@ street, shop by their tastes and budget, pay, and leave reviews, plus running co
   use supplies each time. Sold-out products vanish from displays and annoy customers. Coins can
   go negative; after 7 days in debt a shop closes, its furniture goes to storage and the lot
   becomes vacant. The money section (tap the top bar) shows daily income and costs.
+- **Multiple shops** (stage 6): buy vacant lots (prime spots cost more) to open more shops,
+  each with its own name, products, furniture and reviews; tap a building to go into that shop.
+  Close a shop from its editor (furniture goes to storage, the lot becomes vacant again).
+  Expand a shop into the lot next door (buying it, or folding in another shop you own): the two
+  lots and the gap between become one bigger shop, with rent scaled by area. Stored furniture
+  shows up first in the furniture picker.
 - **Starter set**: a small hand-made set of customers, furniture (including 3D pieces) and
   storefronts is added to a new street so it isn't empty. Player-drawn customers gradually
   replace the starter crowd: after 6 drawn customers, starter customers stop appearing.

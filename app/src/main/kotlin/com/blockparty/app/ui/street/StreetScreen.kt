@@ -85,6 +85,8 @@ import com.blockparty.core.npc.NpcPool
 import com.blockparty.core.npc.CustomerBrain
 import com.blockparty.core.npc.ShopCatalog
 import com.blockparty.core.sim.Economy
+import com.blockparty.core.sim.Lots
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import com.blockparty.core.npc.CrowdEvent
 import com.blockparty.core.npc.ShopDoor
@@ -110,7 +112,8 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
     val textMeasurer = rememberTextMeasurer()
-    val homeLot = world.lot(WorldFactory.HOME_LOT_ID) ?: return
+    val currentLot = vm.currentLot ?: return
+    var buyLotId by remember { mutableStateOf<String?>(null) }
 
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var pan by remember { mutableStateOf(Offset.Zero) }
@@ -128,12 +131,16 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
     val effects = remember { mutableStateMapOf<String, Effect>() }
     var time by remember { mutableFloatStateOf(0f) }
 
-    val freeTiles = remember(homeLot.furniture, world.sprites) { Placement.freeTiles(homeLot, world::sprite) }
+    val freeTiles = remember(currentLot.furniture, world.sprites) { Placement.freeTiles(currentLot, world::sprite) }
 
     // Customers: who can appear, and which shops they might walk into.
     val crowd = vm.crowd
     val candidates = remember(world.npcs, world.sprites) { NpcPool.weighted(world) }
-    val doors = remember(homeLot, freeTiles, world.sprites) { listOf(shopDoor(world, homeLot, freeTiles)) }
+    // Every open shop on the street can have customers.
+    val doors = remember(world.street.lots, world.sprites) {
+        world.street.lots.filter { it.state == LotState.OWNED && it.business != null }
+            .map { lot -> shopDoor(world, lot, Placement.freeTiles(lot, world::sprite)) }
+    }
     val pick: (Random) -> NpcProfile? = { r -> NpcPool.choose(candidates, r) }
     val latestDoors by rememberUpdatedState(doors)
     val latestPick by rememberUpdatedState(pick)
@@ -175,7 +182,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
         world = world,
         iso = iso,
         images = vm.sprites.images,
-        interiorLotId = if (interior) homeLot.id else null,
+        interiorLotId = if (interior) currentLot.id else null,
         timeSec = t,
         staff = crowd.staff,
         services = crowd.services,
@@ -184,6 +191,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
         freeTileHints = if (placing != null || movingId != null) freeTiles else null,
         flash = flash,
         crowd = crowd.people,
+        lotPrices = world.street.lots.filter { it.state == LotState.VACANT }.associate { it.id to Lots.price(it, world) },
     )
     val scene = sceneAt(0f) // time-independent queries: bounds for camera and taps
 
@@ -202,9 +210,10 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
         }
     }
 
-    fun enterShop() {
+    fun enterShop(lot: Lot = currentLot) {
+        if (lot.business == null) return
         interior = true
-        animateCamera(scene.lotBounds(homeLot), 0.9f)
+        animateCamera(scene.lotBounds(lot), 0.9f)
     }
 
     fun exitToStreet() {
@@ -242,9 +251,15 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
         } else if (!interior) {
             val tile = iso.screenToTile(p.x, p.y)
             val lot = world.street.lots.firstOrNull { it.rect.contains(tile.x, tile.y) }
+                ?: world.street.lots.firstOrNull { it.state == LotState.OWNED && it.business != null && scene.lotBounds(it).contains(p) }
             when {
-                scene.lotBounds(homeLot).contains(p) && (lot == null || lot.id == homeLot.id) -> enterShop()
-                lot?.state == LotState.LOCKED -> scope.launch { snackbar.showSnackbar("This lot unlocks as the street grows.") }
+                lot == null -> Unit
+                lot.state == LotState.OWNED && lot.business != null -> {
+                    vm.selectLot(lot.id)
+                    enterShop(lot)
+                }
+                lot.state == LotState.VACANT -> buyLotId = lot.id
+                lot.state == LotState.LOCKED -> scope.launch { snackbar.showSnackbar("This lot unlocks as the street grows.") }
             }
         } else {
             val tile = iso.screenToTile(p.x, p.y)
@@ -259,7 +274,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                     if (placed != null) trigger(placed.id, EffectType.WOBBLE)
                 }
                 moving != null -> {
-                    val piece = homeLot.furniture.firstOrNull { it.id == moving }
+                    val piece = currentLot.furniture.firstOrNull { it.id == moving }
                     if (piece != null) {
                         val sprite = world.sprite(piece.spriteId)
                         val (ox, oy) = originFor(sprite, piece.flipped, tile.x, tile.y)
@@ -278,8 +293,8 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                     }
                     is Hit.Tile -> {
                         selectedNpc = null
-                        if (selectedId == null && !homeLot.rect.contains(hit.x, hit.y) &&
-                            !scene.lotBounds(homeLot).contains(p)
+                        if (selectedId == null && !currentLot.rect.contains(hit.x, hit.y) &&
+                            !scene.lotBounds(currentLot).contains(p)
                         ) exitToStreet() else selectedId = null
                     }
                 }
@@ -322,10 +337,10 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
         }
 
         TopBar(
-            title = homeLot.business?.name?.ifBlank { null } ?: "My Shop",
+            title = currentLot.business?.name?.ifBlank { null } ?: if (currentLot.business == null) "Vacant lot" else "My Shop",
             subtitle = world.street.name + if (interior) " · inside" else "",
             coins = world.coins,
-            rating = homeLot.business?.rating,
+            rating = currentLot.business?.rating,
             debtDaysLeft = Economy.graceDaysLeft(world, vm.today()),
             onClick = { showStats = true },
             modifier = Modifier.align(Alignment.TopCenter),
@@ -340,8 +355,8 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             SnackbarHost(snackbar)
-            val selectedPiece = homeLot.furniture.firstOrNull { it.id == selectedId }
-            val keeperSprite = world.sprite(homeLot.business?.shopkeeperSpriteId)
+            val selectedPiece = currentLot.furniture.firstOrNull { it.id == selectedId }
+            val keeperSprite = world.sprite(currentLot.business?.shopkeeperSpriteId)
             when {
                 placing != null -> HintCard(
                     sprite = world.sprite(placing),
@@ -351,7 +366,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                     onAction = { vm.startPlacing(null) },
                 )
                 movingId != null -> HintCard(
-                    sprite = world.sprite(homeLot.furniture.firstOrNull { it.id == movingId }?.spriteId),
+                    sprite = world.sprite(currentLot.furniture.firstOrNull { it.id == movingId }?.spriteId),
                     vm = vm,
                     text = "Tap where it should go.",
                     action = "Cancel",
@@ -384,7 +399,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                             }
                         }
                         TextButton(onClick = { vm.removeFurniture(selectedPiece.id); selectedId = null }) {
-                            Icon(Icons.Default.Delete, null); Spacer(Modifier.width(4.dp)); Text("Remove")
+                            Icon(Icons.Default.Delete, null); Spacer(Modifier.width(4.dp)); Text("Store")
                         }
                     }
                 }
@@ -398,7 +413,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                 selectedId == SHOPKEEPER_ID && keeperSprite != null ->
                     SelectionCard(sprite = keeperSprite, vm = vm, onClose = { selectedId = null }) {}
                 interior -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    val soldOut = homeLot.business?.offerings.orEmpty().count { it.kind == OfferingKind.PRODUCT && it.stock == 0 }
+                    val soldOut = currentLot.business?.offerings.orEmpty().count { it.kind == OfferingKind.PRODUCT && it.stock == 0 }
                     if (soldOut > 0) {
                         AssistChip(
                             onClick = vm::restockAll,
@@ -422,7 +437,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                     FilledTonalIconButton(onClick = { showPeople = true }, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Default.Groups, "Street people")
                     }
-                    Button(onClick = ::enterShop) {
+                    Button(onClick = { enterShop() }, enabled = currentLot.business != null) {
                         Icon(Icons.Default.Storefront, null); Spacer(Modifier.width(6.dp)); Text("Go inside")
                     }
                     FilledTonalButton(onClick = { vm.navigate(Screen.ShopEditor) }) {
@@ -433,12 +448,40 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
         }
     }
 
+    buyLotId?.let { id ->
+        val lot = world.lot(id)
+        if (lot != null) {
+            val price = Lots.price(lot, world)
+            AlertDialog(
+                onDismissRequest = { buyLotId = null },
+                title = { Text("Buy this lot?") },
+                text = {
+                    Text(
+                        "Open a new shop here for $price coins. Rent is ${Economy.rentPerDay(lot, world.street)} coins a day." +
+                            if (world.coins < price) "\n\nYou have ${world.coins} coins." else ""
+                    )
+                },
+                confirmButton = {
+                    TextButton(enabled = world.coins >= price, onClick = {
+                        buyLotId = null
+                        val error = vm.buyLot(id)
+                        if (error != null) scope.launch { snackbar.showSnackbar(error) } else {
+                            world.lot(id)?.let { enterShop(it.copy(business = com.blockparty.core.model.Business("New Shop"))) }
+                            vm.navigate(Screen.ShopEditor)
+                        }
+                    }) { Text("Buy for $price") }
+                },
+                dismissButton = { TextButton(onClick = { buyLotId = null }) { Text("Cancel") } },
+            )
+        }
+    }
+
     if (showStats) {
-        homeLot.business?.let { business ->
+        currentLot.business?.let { business ->
             ShopStatsSheet(
                 business = business,
                 coins = world.coins,
-                rentPerDay = Economy.rentPerDay(homeLot, world.street),
+                rentPerDay = Economy.rentPerDay(currentLot, world.street),
                 wagesPerDay = Economy.wagesPerDay(business),
                 books = world.economy.books,
                 restockNeed = vm.restockAllNeed(),
@@ -465,7 +508,9 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
     if (showPicker) {
         SpritePickerSheet(
             title = "Furniture & decor",
-            sprites = world.sprites.filter { it.kind == SpriteKind.FURNITURE },
+            sprites = world.sprites.filter { it.kind == SpriteKind.FURNITURE }
+                .sortedByDescending { s -> world.storage.count { it == s.id } },
+            badges = world.storage.groupingBy { it }.eachCount().mapValues { "×${it.value} stored" },
             vm = vm,
             drawLabel = "Draw new furniture",
             onDismiss = { showPicker = false },

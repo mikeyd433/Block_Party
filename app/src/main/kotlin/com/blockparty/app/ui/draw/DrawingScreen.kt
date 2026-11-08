@@ -118,7 +118,7 @@ private const val CANVAS_LONG_SIDE = 1024
 fun DrawingScreen(vm: GameViewModel, world: WorldState, kind: SpriteKind, purpose: DrawPurpose) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val lotWidth = vm.homeLot?.rect?.w ?: 6
+    val lotWidth = vm.currentLot?.rect?.w ?: 6
     val aspect = if (kind == SpriteKind.FACADE) Storefront(IsoProjection()).facadeAspect(lotWidth) else 1f
     val state = remember {
         DrawingState(CANVAS_LONG_SIDE, (CANVAS_LONG_SIDE / aspect).roundToInt())

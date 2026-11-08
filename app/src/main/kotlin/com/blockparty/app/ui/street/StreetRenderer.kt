@@ -77,6 +77,8 @@ class StreetScene(
     val freeTileHints: Set<Pair<Int, Int>>?,
     val flash: Flash?,
     val crowd: List<Pedestrian> = emptyList(),
+    /** Asking price of each vacant lot. */
+    val lotPrices: Map<String, Long> = emptyMap(),
 ) {
     val storefront = Storefront(iso)
 
@@ -406,7 +408,7 @@ private fun DrawScope.drawEmptyLot(scene: StreetScene, lot: Lot, textMeasurer: T
     val path = polygonPath(c)
     drawPath(path, Paper.LockedLot)
     drawPath(path, Paper.Ink.copy(alpha = 0.45f), style = dashed)
-    val label = if (lot.state == LotState.LOCKED) "Locked" else "For sale"
+    val label = if (lot.state == LotState.LOCKED) "Locked" else "For sale" + (scene.lotPrices[lot.id]?.let { " · ${it}¢" } ?: "")
     val layout = textMeasurer.measure(label, TextStyle(fontSize = 18.sp, color = Paper.Ink.copy(alpha = 0.6f)))
     val center = scene.iso.rectCenter(r.x.toFloat(), r.y.toFloat(), r.w.toFloat(), r.h.toFloat())
     drawText(layout, topLeft = Offset(center.x - layout.size.width / 2f, center.y - layout.size.height / 2f))
