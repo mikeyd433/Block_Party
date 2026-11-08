@@ -237,6 +237,15 @@ class StreetsApi(
 
     private suspend fun get(path: String): String = call("GET", path, null, emptyMap())
 
+    // For the social calls (Social.kt).
+    internal suspend fun getPath(path: String): String = get(path)
+    internal suspend fun postPath(path: String, body: String) = call("POST", path, body, mapOf("Prefer" to "return=minimal"))
+    internal suspend fun deletePath(path: String) {
+        call("DELETE", path, null, mapOf("Prefer" to "return=minimal"))
+    }
+    internal suspend fun rpcRaw(function: String, body: String): String = call("POST", "rpc/$function", body, emptyMap())
+    internal suspend fun myUserId(): String = auth.validSession().userId
+
     private suspend fun rpcString(function: String, args: JsonObject): String {
         val body = call("POST", "rpc/$function", args.toString(), emptyMap())
         val value = runCatching { (BackendJson.parseToJsonElement(body) as? JsonPrimitive)?.contentOrNull }.getOrNull()

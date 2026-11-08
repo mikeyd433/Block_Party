@@ -32,6 +32,8 @@ class StreetLive(
     private val onLive: (Boolean) -> Unit,
 ) {
     private var job: Job? = null
+    /** Listen to chat, notes and money too; turned off if the server refuses them (not set up yet). */
+    @Volatile private var withSocial = true
 
     fun start(scope: CoroutineScope) {
         if (job != null) return
@@ -65,7 +67,8 @@ class StreetLive(
         val joined = java.util.concurrent.atomic.AtomicBoolean(false)
         val listener = object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                webSocket.send(RealtimeProtocol.join(streetId, token, joinRef))
+                val tables = if (withSocial) RealtimeProtocol.TABLES + RealtimeProtocol.SOCIAL_TABLES else RealtimeProtocol.TABLES
+                webSocket.send(RealtimeProtocol.join(streetId, token, joinRef, tables))
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -76,7 +79,12 @@ class StreetLive(
                         onChange() // catch anything that happened while not connected
                     }
                     is Incoming.Change -> onChange()
-                    is Incoming.Failed, Incoming.Closed -> webSocket.close(1000, null)
+                    is Incoming.Failed -> {
+                        // Most likely the social tables aren't on the server yet: retry without them.
+                        if (withSocial) withSocial = false
+                        webSocket.close(1000, null)
+                    }
+                    Incoming.Closed -> webSocket.close(1000, null)
                     Incoming.Other -> Unit
                 }
             }

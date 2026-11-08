@@ -66,6 +66,14 @@ object Economy {
         return world.copy(economy = world.economy.copy(books = updated))
     }
 
+    /** Money from another player (gift, loan or repayment), booked under [day]. */
+    fun receiveFromFriend(world: WorldState, day: Long, amount: Long): WorldState =
+        book(world.copy(coins = world.coins + amount), day) { it.copy(fromFriends = it.fromFriends + amount) }
+
+    /** Money sent to another player, booked under [day]. */
+    fun sendToFriend(world: WorldState, day: Long, amount: Long): WorldState =
+        book(world.copy(coins = world.coins - amount), day) { it.copy(toFriends = it.toFriends + amount) }
+
     /** Spends coins on supplies, booked under [day]. Coins may go negative (debt). */
     fun spendOnSupplies(world: WorldState, day: Long, amount: Long): WorldState =
         book(world.copy(coins = world.coins - amount), day) { it.copy(supplies = it.supplies + amount) }

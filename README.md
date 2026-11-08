@@ -5,8 +5,8 @@ business can be anything the player wants. Nearly everything in the world is dra
 players and stands in the scene as a flat paper cutout. The full design is in
 [`docs/SPEC.md`](docs/SPEC.md).
 
-Build stages 1–4, 6 and 7 are done, and most of stage 5 (accounts, and playing together on shared
-streets): a single-player street prototype with drawn customers who walk the
+Build stages 1–7 are done (stage 5: accounts and playing together on shared streets), and stage 8
+has started (chat, door notes, gifts and loans): a single-player street prototype with drawn customers who walk the
 street, shop by their tastes and budget, pay, and leave reviews, plus running costs and debt.
 
 ## What works so far
@@ -97,6 +97,12 @@ street, shop by their tastes and budget, pay, and leave reviews, plus running co
   a few seconds after you make them, and other players' changes arrive within a second or two
   (live updates; every 20 seconds if the live connection is down). The top card says "offline"
   when it can't reach the server.
+- **Social** (stage 8, first part), on shared streets: **street chat** (the speech-bubble button,
+  with an unread badge), **notes on shop doors** (the note button inside a shop: leave one when
+  visiting a friend's shop; owners can remove notes on their shop), and **money between
+  friends** (the money button): give coins, lend them, and pay loans back. Coins live on each
+  phone, so the server records each transfer and the recipient's phone collects it exactly once;
+  money from friends shows in the day's books.
 
 There is no LLM or AI-generated content anywhere. All behaviour comes from hand-written systems.
 

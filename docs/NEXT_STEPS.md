@@ -63,7 +63,20 @@ Keep in mind: database/storage/bandwidth limits and free-plan pausing are shared
      differ slightly between devices with different levels.
    - If the project requires email confirmation, the confirmation link goes to the project's
      Site URL (set for Not A Book Club). The app tells players to confirm and then sign in.
-2. **Stages 8–9:** street chat, notes at shop doors, gifting, loans, buying shops from each
-   other, shared promos; player XP, business reputation, street level and unlocks (locked
-   lots, new tags, catalog furniture); events (weekly, votes, random, player-hosted),
-   leaderboards, seasons and weather; admin moderation tools.
+2. **Stage 8 (social).** Done: street chat, door notes, gifts, loans and repayments
+   (`supabase/migrations/20261109_block_party_social.sql`; client in `shared/core/net/Social.kt`,
+   `app/StreetSocial.kt`, `ui/online/SocialScreens.kt`). Money is a hand-off: the sender's
+   device inserts a `transfers` row and then deducts locally; the recipient's device collects
+   it with `claim_transfer`, which marks it claimed atomically. Social refreshes ride the street
+   sync and live updates (if the server refuses the social tables, live updates retry without
+   them). Still to do in stage 8:
+   - **Buying shops from each other**: offers with a price, the seller accepts, ownership moves
+     server-side (an RPC that moves `owner_id` and records the payment). The sync merge must
+     treat "sold" differently from "lost a race" (which refunds).
+   - **Shared promos** (buy here, get a discount there): needs customer-sim changes.
+   - **Admin moderation**: delete any chat message or door note (the policies already allow
+     it; the app only offers it to authors and shop owners), remove drawings, and edit
+     business names/descriptions (needs the owner's device to accept the admin's change).
+3. **Stage 9:** player XP, business reputation, street level and unlocks (locked lots, new tags,
+   catalog furniture); events (weekly, votes, random, player-hosted), leaderboards, seasons and
+   weather.

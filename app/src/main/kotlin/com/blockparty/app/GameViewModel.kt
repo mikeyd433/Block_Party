@@ -19,6 +19,7 @@ import com.blockparty.core.net.ServerStreet
 import com.blockparty.core.net.SignedOutException
 import com.blockparty.core.net.StreetSyncer
 import com.blockparty.core.net.SyncMerge
+import com.blockparty.core.net.Loans
 import com.blockparty.app.data.WorldRepository
 import com.blockparty.core.art.ImageOps
 import com.blockparty.app.data.StarterSet
@@ -81,6 +82,8 @@ sealed interface Screen {
     data object Streets : Screen
     data object SignIn : Screen
     data class SharedStreet(val streetId: String) : Screen
+    data object Chat : Screen
+    data object Money : Screen
 }
 
 class GameViewModel(app: Application) : AndroidViewModel(app) {
@@ -130,6 +133,10 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     /** Someone else changed something on it (live updates). */
     private val remoteChanged = Channel<Unit>(Channel.CONFLATED)
 
+    /** Chat, door notes and money for the open shared street (null on the single-player street). */
+    var social by mutableStateOf<StreetSocial?>(null)
+        private set
+
     /** The open shared street's live connection is up (changes arrive within a second or so). */
     var liveConnected by mutableStateOf(false)
         private set
@@ -167,6 +174,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun show(w: WorldState) {
         world = w
         sharedStreetId = if (w.isShared) w.street.id else null
+        social = w.myUserId?.let { StreetSocial(backend.streets, w.street.id, it, prefs) }
         syncProblem = null
         liveConnected = false
         crowd = StreetCrowd()
@@ -318,6 +326,11 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
                         sprites.images.putAll(decoded)
                     }
                     syncProblem = null
+                    // Chat, notes and money sent to the player (problems here don't stop the game syncing).
+                    social?.takeIf { it.streetId == streetId }?.refresh { t ->
+                        applySync(streetId) { Economy.receiveFromFriend(it, today(), t.amount) }
+                        notices = notices + Loans.describeIncoming(t)
+                    }
                 } catch (e: SignedOutException) {
                     syncProblem = "signed out"
                 } catch (e: BackendException) {
@@ -337,6 +350,59 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
                 kotlinx.coroutines.delay(settle)
             }
         }
+    }
+
+    // --- Social: chat, door notes, money between players -----------------------------------------
+
+    /** Runs a social action, reporting a friendly error (or null) to [onDone]. */
+    private fun socialAction(onDone: (String?) -> Unit = {}, block: suspend (StreetSocial) -> Unit) {
+        val s = social ?: return onDone("Open a shared street first.")
+        viewModelScope.launch {
+            try {
+                block(s)
+                onDone(null)
+            } catch (e: BackendException) {
+                onDone(e.message)
+            }
+        }
+    }
+
+    fun sendChat(text: String, onDone: (String?) -> Unit) {
+        if (text.isBlank()) return
+        socialAction(onDone) { it.send(world?.playerName.orEmpty(), text) }
+    }
+
+    fun deleteChat(id: String) = socialAction { it.deleteMessage(id) }
+
+    fun leaveDoorNote(lotId: String, text: String, onDone: (String?) -> Unit) {
+        if (text.isBlank()) return
+        socialAction(onDone) { it.leaveNote(lotId, world?.playerName.orEmpty(), text) }
+    }
+
+    fun deleteDoorNote(id: String) = socialAction { it.deleteNote(id) }
+
+    fun loadMoney(onDone: (String?) -> Unit = {}) = socialAction(onDone) { it.loadMoney() }
+
+    /**
+     * Gives, lends or pays back coins to another player. The server records the transfer first,
+     * then the coins come off here, so nothing is lost if the network fails. [onDone] gets an
+     * error message or null.
+     */
+    fun sendMoney(toId: String, kind: String, amount: Long, note: String, loanId: String?, onDone: (String?) -> Unit) {
+        val w = world ?: return
+        if (amount <= 0) return onDone("Enter an amount.")
+        if (amount > w.coins) return onDone("You only have ${w.coins} coins.")
+        socialAction(onDone) { s ->
+            s.sendMoney(toId, w.playerName, kind, amount, note, loanId)
+            update { Economy.sendToFriend(it, today(), amount) }
+        }
+    }
+
+    /** Test hook: the social state for a shared street set with [debugReplaceWorld]. */
+    @androidx.annotation.VisibleForTesting
+    fun debugSocial(): StreetSocial {
+        val w = world!!
+        return social ?: StreetSocial(backend.streets, w.street.id, w.myUserId!!, prefs).also { social = it }
     }
 
     /** True unless the server says the player isn't on the street (errors count as "still a member"). */

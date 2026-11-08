@@ -185,6 +185,20 @@ class ScreenshotTest {
         ).world
         vm.debugReplaceWorld(shared)
         vm.selectLot("lot-1")
+        val now = java.time.OffsetDateTime.now().toString()
+        vm.debugSocial().debugShow(
+            messages = listOf(
+                com.blockparty.core.net.ChatMessage("m1", "u2", "Bo", "Morning! Anyone want to open a café next to me?", now),
+                com.blockparty.core.net.ChatMessage("m2", "u1", "Ann", "Ooh yes, I'll do cakes", now),
+                com.blockparty.core.net.ChatMessage("m3", "u2", "Bo", "Perfect, books and cake", now),
+            ),
+            notes = listOf(com.blockparty.core.net.DoorNote("n1", "lot-1", "u1", "Ann", "Love the reading nook!", now)),
+            members = listOf(com.blockparty.core.net.RemoteMember("u1", "Ann"), com.blockparty.core.net.RemoteMember("u2", "Bo")),
+            loans = com.blockparty.core.net.Loans.balances(
+                listOf(com.blockparty.core.net.Transfer("l1", "u2", "u1", "Bo", com.blockparty.core.net.Transfer.LOAN, 200, createdAt = now)),
+                "u1",
+            ),
+        )
 
         // Bo's shop can't be changed from Ann's phone.
         vm.setBusinessName("Hacked")
@@ -197,11 +211,30 @@ class ScreenshotTest {
         compose.onNodeWithText("Edit shop").assertDoesNotExist()
         snapshot("30_shared_street")
 
+        compose.onNodeWithContentDescription("Street chat").assertExists()
+        compose.onNodeWithText("2").assertExists() // unread from Bo
+
         compose.onNodeWithText("Visit").performClick()
         advance(1500)
         compose.onNodeWithText("Visiting Bo's shop").assertExists()
         compose.onNodeWithText("Furniture").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Door notes").assertExists()
         snapshot("31_visiting")
+
+        vm.navigate(Screen.Chat)
+        advance(800)
+        compose.onNodeWithText("Perfect, books and cake").assertExists()
+        snapshot("32_chat")
+        assertEquals("reading the chat clears the badge", 0, vm.social!!.unread)
+        vm.back()
+        advance(300)
+        vm.navigate(Screen.Money)
+        advance(800)
+        compose.onNodeWithText("Borrowed 200 from Bo").assertExists()
+        compose.onNodeWithText("Pay back").assertExists()
+        snapshot("33_money")
+        vm.back()
+        advance(300)
 
         // Ann's own shop still edits as normal.
         vm.selectLot("lot-0")

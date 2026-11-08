@@ -32,7 +32,7 @@ class RealtimeTest {
         val payload = msg["payload"]!!.jsonObject
         assertEquals("jwt", payload["access_token"]!!.jsonPrimitive.content)
         val changes = payload["config"]!!.jsonObject["postgres_changes"]!!.jsonArray.map { it.jsonObject }
-        assertEquals(listOf("lots", "sprites", "members"), changes.map { it["table"]!!.jsonPrimitive.content })
+        assertEquals(listOf("lots", "sprites", "members", "messages", "door_notes", "transfers"), changes.map { it["table"]!!.jsonPrimitive.content })
         changes.forEach {
             assertEquals("block_party", it["schema"]!!.jsonPrimitive.content)
             assertEquals("street_id=eq.s1", it["filter"]!!.jsonPrimitive.content)

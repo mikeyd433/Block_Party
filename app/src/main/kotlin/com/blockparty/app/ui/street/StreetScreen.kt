@@ -39,6 +39,9 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.automirrored.filled.StickyNote2
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -131,6 +134,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
     var showPicker by remember { mutableStateOf(false) }
     var showPeople by remember { mutableStateOf(false) }
     var showStats by remember { mutableStateOf(false) }
+    var showNotes by remember { mutableStateOf(false) }
     val popups = remember { mutableStateListOf<Popup>() }
     var selectedNpc by remember { mutableStateOf<NpcProfile?>(null) }
     var flash by remember { mutableStateOf<Flash?>(null) }
@@ -360,6 +364,22 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
             modifier = Modifier.align(Alignment.TopCenter).padding(horizontal = if (interior) 0.dp else 52.dp),
         )
 
+        val social = vm.social
+        if (!interior && social != null) {
+            Column(
+                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 12.dp, top = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilledTonalIconButton(onClick = { vm.navigate(Screen.Chat) }, modifier = Modifier.size(44.dp)) {
+                    androidx.compose.material3.BadgedBox(badge = {
+                        if (social.unread > 0) androidx.compose.material3.Badge { Text(if (social.unread > 9) "9+" else "${social.unread}") }
+                    }) { Icon(Icons.AutoMirrored.Filled.Chat, "Street chat") }
+                }
+                FilledTonalIconButton(onClick = { vm.navigate(Screen.Money) }, modifier = Modifier.size(44.dp)) {
+                    Icon(Icons.Default.Payments, "Money")
+                }
+            }
+        }
         if (!interior) {
             FilledTonalIconButton(
                 onClick = { vm.navigate(Screen.Streets) },
@@ -443,6 +463,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                     FilledTonalIconButton(onClick = ::exitToStreet, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Default.Map, "Back to street")
                     }
+                    if (vm.social != null) NotesButton(vm.social!!.notesFor(currentLot.id).size) { showNotes = true }
                     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f), shadowElevation = 2.dp) {
                         Text(
                             "Visiting ${currentLot.ownerName.ifBlank { "a friend" }}'s shop",
@@ -470,6 +491,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                     FilledTonalButton(onClick = { vm.navigate(Screen.ShopEditor) }) {
                         Icon(Icons.Default.Edit, null); Spacer(Modifier.width(6.dp)); Text("Shop", maxLines = 1)
                     }
+                    if (vm.social != null) NotesButton(vm.social!!.notesFor(currentLot.id).size) { showNotes = true }
                 }
                 }
                 else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -487,6 +509,10 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                 }
             }
         }
+    }
+
+    if (showNotes) {
+        com.blockparty.app.ui.online.DoorNotesSheet(vm, world, currentLot) { showNotes = false }
     }
 
     buyLotId?.let { id ->
@@ -716,3 +742,13 @@ private fun SelectionCard(
 fun creditLine(sprite: SpriteAsset?): String =
     if (sprite != null && sprite.showCredit && sprite.artistName.isNotBlank()) "Drawn by ${sprite.artistName}"
     else "Anonymous artist"
+
+/** Notes left at the current shop's door, with how many there are. */
+@Composable
+private fun NotesButton(count: Int, onClick: () -> Unit) {
+    FilledTonalIconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
+        androidx.compose.material3.BadgedBox(badge = {
+            if (count > 0) androidx.compose.material3.Badge { Text("$count") }
+        }) { Icon(Icons.AutoMirrored.Filled.StickyNote2, "Door notes") }
+    }
+}

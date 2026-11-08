@@ -181,8 +181,14 @@ data class DayBook(
     val supplies: Long = 0,
     /** Buying lots (and, later, shops). */
     val property: Long = 0,
+    /** Money from other players on a shared street: gifts, loans, repayments. */
+    val fromFriends: Long = 0,
+    /** Money given, lent or paid back to other players. */
+    val toFriends: Long = 0,
 ) {
-    val net: Long get() = sales - rent - wages - supplies - property
+    val net: Long get() = sales + fromFriends - rent - wages - supplies - property - toFriends
+    val moneyIn: Long get() = sales + fromFriends
+    val moneyOut: Long get() = rent + wages + supplies + property + toFriends
 }
 
 @Serializable

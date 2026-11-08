@@ -81,7 +81,7 @@ fun ShopStatsSheet(
                 Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
                     Text(dayLabel(b.day, today), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                     Text(
-                        "+${b.sales}  −${b.rent + b.wages + b.supplies}  = ${if (b.net >= 0) "+" else ""}${b.net}",
+                        "+${b.moneyIn}  −${b.moneyOut}  = ${if (b.net >= 0) "+" else ""}${b.net}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = if (b.net < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                     )

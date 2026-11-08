@@ -18,6 +18,8 @@ import kotlinx.serialization.json.putJsonObject
 object RealtimeProtocol {
     /** Tables whose changes matter to a street (all in the Realtime publication). */
     val TABLES = listOf("lots", "sprites", "members")
+    /** Chat, notes and money (from the social migration). */
+    val SOCIAL_TABLES = listOf("messages", "door_notes", "transfers")
 
     /** Phoenix expects a heartbeat at least every 30 seconds. */
     const val HEARTBEAT_MS = 25_000L
@@ -30,14 +32,14 @@ object RealtimeProtocol {
     fun topic(streetId: String) = "realtime:block-party-street-$streetId"
 
     /** Joins the street's channel: changes to its lots, drawings and members. */
-    fun join(streetId: String, accessToken: String, ref: String): String = message(
+    fun join(streetId: String, accessToken: String, ref: String, tables: List<String> = TABLES + SOCIAL_TABLES): String = message(
         topic(streetId), "phx_join", ref, joinRef = ref,
         payload = buildJsonObject {
             putJsonObject("config") {
                 putJsonObject("broadcast") { put("self", false) }
                 putJsonObject("presence") { put("key", "") }
                 putJsonArray("postgres_changes") {
-                    for (table in TABLES) addJsonObject {
+                    for (table in tables) addJsonObject {
                         put("event", "*")
                         put("schema", StreetsApi.SCHEMA)
                         put("table", table)

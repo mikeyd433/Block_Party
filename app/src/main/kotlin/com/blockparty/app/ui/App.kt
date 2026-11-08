@@ -45,5 +45,7 @@ fun BlockPartyApp(vm: GameViewModel = viewModel(), online: OnlineViewModel = vie
         Screen.Streets -> com.blockparty.app.ui.online.StreetsScreen(vm, online, world)
         Screen.SignIn -> com.blockparty.app.ui.online.SignInScreen(vm, online)
         is Screen.SharedStreet -> com.blockparty.app.ui.online.SharedStreetScreen(vm, online, screen.streetId)
+        Screen.Chat -> com.blockparty.app.ui.online.ChatScreen(vm, world)
+        Screen.Money -> com.blockparty.app.ui.online.MoneyScreen(vm, world)
     }
 }
