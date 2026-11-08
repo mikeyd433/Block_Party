@@ -149,10 +149,11 @@ Client setup: point the client at the `block_party` schema (in supabase-kt, pass
 `schema = "block_party"` to `postgrest.from(...)` / `postgrest.rpc(...)`, or set
 `defaultSchema = "block_party"` in the Postgrest plugin config).
 
-To embed profiles (`select('*, profiles(display_name)')`), point foreign keys at
-`public.profiles(id)` and add a view in this schema:
-`create view block_party.profiles with (security_invoker = true) as select * from public.profiles;`
-(see Not A Book Club's `0060` migration for the same pattern).
+Players are the shared `public.profiles` rows: every player foreign key points at
+`public.profiles(id)`, and the read-only `block_party.profiles` view (security invoker, the same
+pattern as Not A Book Club's `0060` migration) lets the API embed them, for example
+`lots?select=*,profiles(display_name)`. A lot's owner must be a member of its street, so when a
+player leaves, is removed or deletes their account, their shops become vacant lots.
 
 ## Status
 

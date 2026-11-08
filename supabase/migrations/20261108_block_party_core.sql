@@ -11,7 +11,7 @@ grant usage on schema block_party to anon, authenticated, service_role;
 create table block_party.streets (
   id uuid primary key default gen_random_uuid(),
   name text not null check (char_length(name) between 1 and 60),
-  admin_id uuid not null references auth.users(id) on delete cascade,
+  admin_id uuid not null references public.profiles(id) on delete cascade,
   invite_code text not null unique,
   time_zone text not null default 'UTC',
   level int not null default 0,
@@ -20,7 +20,7 @@ create table block_party.streets (
 
 create table block_party.members (
   street_id uuid not null references block_party.streets(id) on delete cascade,
-  user_id uuid not null references auth.users(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
   display_name text not null default '' check (char_length(display_name) <= 40),
   joined_at timestamptz not null default now(),
   primary key (street_id, user_id)
@@ -42,25 +42,51 @@ create table block_party.lots (
   lot_id text not null,
   rect jsonb not null,
   state text not null check (state in ('VACANT', 'OWNED', 'LOCKED')),
-  owner_id uuid references auth.users(id) on delete set null,
+  owner_id uuid references public.profiles(id) on delete set null,
   owner_name text not null default '',
   business jsonb,
   furniture jsonb not null default '[]'::jsonb,
   updated_at timestamptz not null default now(),
-  primary key (street_id, lot_id)
+  primary key (street_id, lot_id),
+  -- An owner must be a member of the street. Leaving, being removed or deleting the account
+  -- clears owner_id, and the trigger below turns the shop back into a vacant lot.
+  foreign key (street_id, owner_id) references block_party.members(street_id, user_id)
+    on delete set null (owner_id)
 );
 create index lots_owner_idx on block_party.lots(owner_id);
+
+create function block_party.vacate_ownerless_lot() returns trigger
+language plpgsql set search_path = '' as $$
+begin
+  if new.state = 'OWNED' and new.owner_id is null then
+    new.state := 'VACANT';
+    new.owner_name := '';
+    new.business := null;
+    new.furniture := '[]'::jsonb;
+    new.updated_at := now();
+  end if;
+  return new;
+end;
+$$;
+
+create trigger vacate_ownerless_lot before insert or update on block_party.lots
+  for each row execute function block_party.vacate_ownerless_lot();
 
 -- Player drawings shared with the street (the PNGs live in the block-party-drawings bucket).
 create table block_party.sprites (
   street_id uuid not null references block_party.streets(id) on delete cascade,
   id text not null,
-  owner_id uuid not null references auth.users(id) on delete cascade,
+  owner_id uuid not null references public.profiles(id) on delete cascade,
   meta jsonb not null,
   created_at timestamptz not null default now(),
   primary key (street_id, id)
 );
 create index sprites_owner_idx on block_party.sprites(owner_id);
+
+-- Players are the shared public.profiles (one per account, created on signup), so names and
+-- avatars match across apps. This view lets the API embed them from this schema, e.g.
+-- lots?select=*,profiles(display_name). security_invoker keeps public.profiles' RLS in force.
+create view block_party.profiles with (security_invoker = true) as select * from public.profiles;
 
 -- Table privileges. The shared project gives block_party the same default grants as public
 -- (everything, including TRUNCATE, to anon and authenticated), so start from nothing and grant
@@ -73,6 +99,8 @@ revoke update on block_party.lots from authenticated;
 grant update (business, furniture, owner_name, updated_at) on block_party.lots to authenticated;
 revoke insert, delete on block_party.lots from authenticated;
 revoke insert on block_party.streets, block_party.members from authenticated;
+-- Profiles are edited in public.profiles; the view here is read-only.
+revoke insert, update, delete on block_party.profiles from authenticated;
 
 -- Membership helpers (security definer so policies don't recurse).
 create function block_party.is_member(p_street uuid) returns boolean
