@@ -27,6 +27,11 @@ data class SpriteAsset(
     /** Furniture only: footprint on the grid in tiles. */
     val footprintW: Int = 1,
     val footprintH: Int = 1,
+    /**
+     * Furniture only: lean the straight-on drawing into the isometric grid as a flat panel
+     * along one floor axis (true), or stand it upright facing the camera (false).
+     */
+    val alignToGrid: Boolean = true,
     val artistName: String = "",
     /** Artist's choice: show their name when the drawing is tapped, or stay anonymous. */
     val showCredit: Boolean = true,

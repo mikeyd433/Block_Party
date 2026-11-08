@@ -9,6 +9,8 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,6 +29,7 @@ import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.ViewInAr
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -309,6 +312,15 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                         TextButton(onClick = { movingId = selectedPiece.id; selectedId = null }) {
                             Icon(Icons.Default.OpenWith, null); Spacer(Modifier.width(4.dp)); Text("Move")
                         }
+                        if (sprite != null) {
+                            TextButton(onClick = {
+                                vm.setAlignToGrid(sprite.id, !sprite.alignToGrid)
+                                trigger(selectedPiece.id, EffectType.WOBBLE)
+                            }) {
+                                Icon(Icons.Default.ViewInAr, null); Spacer(Modifier.width(4.dp))
+                                Text(if (sprite.alignToGrid) "Stand up" else "Angle")
+                            }
+                        }
                         TextButton(onClick = { vm.removeFurniture(selectedPiece.id); selectedId = null }) {
                             Icon(Icons.Default.Delete, null); Spacer(Modifier.width(4.dp)); Text("Remove")
                         }
@@ -391,6 +403,7 @@ private fun HintCard(sprite: SpriteAsset?, vm: GameViewModel, text: String, acti
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SelectionCard(
     sprite: SpriteAsset?,
@@ -413,7 +426,7 @@ private fun SelectionCard(
                 }
                 IconButton(onClick = onClose) { Icon(Icons.Default.Close, "Close") }
             }
-            Row { actions() }
+            FlowRow { actions() }
         }
     }
 }

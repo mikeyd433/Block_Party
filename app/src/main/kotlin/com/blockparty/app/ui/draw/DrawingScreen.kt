@@ -119,6 +119,7 @@ fun DrawingScreen(vm: GameViewModel, world: WorldState, kind: SpriteKind, purpos
     var name by remember { mutableStateOf("") }
     var facesRight by remember { mutableStateOf(true) }
     var footprint by remember { mutableStateOf(1 to 1) }
+    var alignToGrid by remember { mutableStateOf(true) }
     var signed by remember { mutableStateOf(world.playerName.isNotBlank()) }
     var confirmDiscard by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
@@ -166,6 +167,7 @@ fun DrawingScreen(vm: GameViewModel, world: WorldState, kind: SpriteKind, purpos
                 facesRight = facesRight,
                 footprintW = footprint.first,
                 footprintH = footprint.second,
+                alignToGrid = alignToGrid,
                 showCredit = signed,
             )
             vm.saveDrawing(result, template, purpose)
@@ -282,6 +284,17 @@ fun DrawingScreen(vm: GameViewModel, world: WorldState, kind: SpriteKind, purpos
                                     label = { Text("${fp.first} × ${fp.second}") },
                                 )
                             }
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Angle to the floor grid")
+                                Text(
+                                    if (alignToGrid) "Draw it straight on. It'll be angled to line up with the floor."
+                                    else "Stands upright facing you, like a paper cutout.",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(checked = alignToGrid, onCheckedChange = { alignToGrid = it })
                         }
                     }
                     SpriteKind.CHARACTER -> {

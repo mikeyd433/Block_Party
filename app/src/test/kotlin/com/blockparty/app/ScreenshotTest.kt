@@ -73,11 +73,13 @@ class ScreenshotTest {
         vm.saveDrawing(SampleArt.table(), template(SpriteKind.FURNITURE, "Table", 2, 1), DrawPurpose.FURNITURE)
         val lot = vm.homeLot!!.rect
         assertNotNull(vm.placeFurniture(lot.x + 1, lot.y + 1))
+        val bench = vm.placeFurniture(lot.x + 3, lot.y + 3)!!
+        assert(vm.flipFurniture(bench.id)) // runs along the other floor axis
         vm.saveDrawing(SampleArt.plant(), template(SpriteKind.FURNITURE, "Plant"), DrawPurpose.FURNITURE)
         assertNotNull(vm.placeFurniture(lot.x + 4, lot.y + 1))
         assertNotNull(vm.placeFurniture(lot.x, lot.y + 4))
         vm.startPlacing(null)
-        assertEquals(3, vm.homeLot!!.furniture.size)
+        assertEquals(4, vm.homeLot!!.furniture.size)
 
         compose.mainClock.autoAdvance = false // the street animates forever
         compose.setContent { BlockPartyTheme { BlockPartyApp(vm) } }

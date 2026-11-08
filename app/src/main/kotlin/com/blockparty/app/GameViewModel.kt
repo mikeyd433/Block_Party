@@ -231,6 +231,11 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         return true
     }
 
+    /** Switches a furniture drawing between leaning into the grid and standing upright. */
+    fun setAlignToGrid(spriteId: String, align: Boolean) = update { w ->
+        w.copy(sprites = w.sprites.map { if (it.id == spriteId) it.copy(alignToGrid = align) else it })
+    }
+
     fun removeFurniture(id: String) = updateHomeLot { l -> l.copy(furniture = l.furniture.filterNot { it.id == id }) }
 
     private fun newId() = UUID.randomUUID().toString()

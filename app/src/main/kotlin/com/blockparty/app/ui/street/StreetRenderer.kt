@@ -4,6 +4,7 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Typeface
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -13,6 +14,9 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextMeasurer
@@ -25,6 +29,7 @@ import com.blockparty.core.anim.CutoutPose
 import com.blockparty.core.anim.ProceduralAnimator
 import com.blockparty.core.art.CutoutSizing
 import com.blockparty.core.geometry.Affine2D
+import com.blockparty.core.geometry.GridPanel
 import com.blockparty.core.geometry.IsoProjection
 import com.blockparty.core.geometry.Storefront
 import com.blockparty.core.geometry.Vec2
@@ -34,6 +39,7 @@ import com.blockparty.core.model.LotState
 import com.blockparty.core.model.WorldState
 import com.blockparty.core.sim.Placement
 import com.blockparty.core.sim.Wanderer
+import kotlin.math.min
 
 enum class EffectType(val durationSec: Float) { HOP(0.55f), WOBBLE(0.6f) }
 
@@ -83,7 +89,15 @@ class CutoutItem(
     val mirrored: Boolean,
     val depth: Float,
     val shadow: DrawScope.(Float) -> Unit,
-)
+    /** Set when the drawing is leaned into the grid instead of standing upright. */
+    val panel: GridPanel.Panel? = null,
+) {
+    /** Screen area covered before animation, for hit testing. */
+    val bounds: Rect
+        get() = panel?.let { p ->
+            Rect(p.corners.minOf { it.x }, p.corners.minOf { it.y }, p.corners.maxOf { it.x }, p.corners.maxOf { it.y })
+        } ?: cutoutBounds(foot, size)
+}
 
 /** Cutouts inside the open (interior) lot, sorted back to front. */
 fun StreetScene.interiorCutouts(): List<CutoutItem> {
@@ -98,6 +112,13 @@ fun StreetScene.interiorCutouts(): List<CutoutItem> {
         val (w, h) = CutoutSizing.displaySize(sized, iso)
         val center = iso.rectCenter(rect.x.toFloat(), rect.y.toFloat(), rect.w.toFloat(), rect.h.toFloat())
         val diamond = iso.rectCorners(rect.x.toFloat(), rect.y.toFloat(), rect.w.toFloat(), rect.h.toFloat())
+        val panel = if (sprite.alignToGrid) {
+            GridPanel.standing(
+                iso, rect, alongY = piece.flipped,
+                imageW = image.width.toFloat(), imageH = image.height.toFloat(),
+                maxHeight = iso.tileHeight * FURNITURE_MAX_HEIGHT_TILES,
+            )
+        } else null
         items += CutoutItem(
             id = piece.id,
             image = image,
@@ -107,6 +128,7 @@ fun StreetScene.interiorCutouts(): List<CutoutItem> {
             mirrored = piece.flipped,
             depth = rect.x + rect.w / 2f + rect.y + rect.h / 2f,
             shadow = footprintShadow(diamond),
+            panel = panel,
         )
     }
     val keeper = shopkeeper
@@ -138,7 +160,7 @@ sealed interface Hit {
 
 /** What's under a point in world (unzoomed) coordinates. Front-most cutouts win. */
 fun StreetScene.hitTest(point: Offset): Hit {
-    interiorCutouts().asReversed().firstOrNull { cutoutBounds(it.foot, it.size).contains(point) }
+    interiorCutouts().asReversed().firstOrNull { it.bounds.contains(point) }
         ?.let { return Hit.Cutout(it.id) }
     val tile = iso.screenToTile(point.x, point.y)
     return Hit.Tile(tile.x, tile.y)
@@ -299,7 +321,9 @@ private fun DrawScope.drawInterior(scene: StreetScene, lot: Lot) {
     drawPath(floor, Paper.Ink, style = thinLine)
 
     for (item in scene.interiorCutouts()) {
-        drawCutout(item.image, item.foot, item.size, item.pose, item.mirrored, item.shadow)
+        val panel = item.panel
+        if (panel != null) drawPanelCutout(item.image, panel, item.pose, item.shadow)
+        else drawCutout(item.image, item.foot, item.size, item.pose, item.mirrored, item.shadow)
         if (item.id == scene.selectedId && item.id == SHOPKEEPER_ID) {
             drawCircle(Paper.Accent, radius = 6f, center = item.foot.copy(y = item.foot.y - item.size.height - 14f))
         }
@@ -322,6 +346,35 @@ private fun DrawScope.drawInterior(scene: StreetScene, lot: Lot) {
 }
 
 private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+
+/** Matches the upright furniture height cap in CutoutSizing. */
+private const val FURNITURE_MAX_HEIGHT_TILES = 4.2f
+
+/**
+ * Draws a drawing leaned into the grid as a flat standing panel. The procedural pose is
+ * applied around the middle of the panel's bottom edge, like an upright cutout's feet.
+ */
+private fun DrawScope.drawPanelCutout(
+    image: ImageBitmap,
+    panel: GridPanel.Panel,
+    pose: CutoutPose,
+    shadow: DrawScope.(Float) -> Unit,
+) {
+    val height = panel.corners[3].y - panel.corners[0].y
+    shadow(min(1f, pose.lift * 3f))
+    val foot = panel.foot.toOffset()
+    translate(foot.x, foot.y - pose.lift * height) {
+        rotate(pose.rotationDeg, pivot = Offset.Zero) {
+            scale(scaleX = pose.scaleX, scaleY = pose.scaleY, pivot = Offset.Zero) {
+                translate(-foot.x, -foot.y) {
+                    drawMapped(panel.transform) { canvas ->
+                        canvas.drawBitmap(image.asAndroidBitmap(), 0f, 0f, bitmapPaint)
+                    }
+                }
+            }
+        }
+    }
+}
 
 /** Runs [block] on the native canvas with an affine transform concatenated onto the current one. */
 private inline fun DrawScope.drawMapped(m: Affine2D, crossinline block: (android.graphics.Canvas) -> Unit) {
