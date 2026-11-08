@@ -127,11 +127,37 @@ minSdk 26 (Android 8.0), target/compile SDK 36.
 The screenshot test renders the real street, shop interior, shop editor and drawing screens
 with Robolectric native graphics and writes PNGs to `app/build/screenshots/`.
 
+## Database
+
+Block Party uses the **shared Supabase project** (`dpflpwoivvpfvainzwgd`, also home to Not A
+Book Club) rather than a project of its own, so people have **one login across all the shared
+apps**.
+
+- `public` schema: shared by every app. It holds `profiles` (one per person, auto-created on
+  signup) and `get_app_secret()` for Edge Function secrets. Don't put Block Party tables here.
+- `block_party` schema: all of Block Party's own tables, functions and RLS policies. The schema
+  already exists in the project, with the same default grants as `public` (which give `anon`
+  and `authenticated` full table access, so the migration revokes those and grants only what's
+  needed; still enable RLS on every table).
+- Drawings go in the private `block-party-drawings` storage bucket, under `<street_id>/`.
+
+The schema is created by [`supabase/migrations/20261108_block_party_core.sql`](supabase/migrations/20261108_block_party_core.sql).
+`block_party` must also be listed under Dashboard → Project Settings → Data API → Exposed
+schemas before the client can reach it.
+
+Client setup: point the client at the `block_party` schema (in supabase-kt, pass
+`schema = "block_party"` to `postgrest.from(...)` / `postgrest.rpc(...)`, or set
+`defaultSchema = "block_party"` in the Postgrest plugin config).
+
+To embed profiles (`select('*, profiles(display_name)')`), point foreign keys at
+`public.profiles(id)` and add a view in this schema:
+`create view block_party.profiles with (security_invoker = true) as select * from public.profiles;`
+(see Not A Book Club's `0060` migration for the same pattern).
+
 ## Status
 
-Paused before the backend: see [`docs/NEXT_STEPS.md`](docs/NEXT_STEPS.md). The Supabase project
-is going to become a shared database for several apps (done in a new chat with both repos),
-and the Block Party migration in `supabase/migrations/` hasn't been applied yet.
+Paused before the backend: see [`docs/NEXT_STEPS.md`](docs/NEXT_STEPS.md). The shared database
+is set up, but the Block Party migration in `supabase/migrations/` hasn't been applied yet.
 
 ## Next up (from the spec's build order)
 
