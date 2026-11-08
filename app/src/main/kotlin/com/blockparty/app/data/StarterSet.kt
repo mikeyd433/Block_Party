@@ -10,6 +10,7 @@ import com.blockparty.core.geometry.Facing
 import com.blockparty.core.geometry.IsoProjection
 import com.blockparty.core.geometry.Storefront
 import com.blockparty.core.model.CharacterRole
+import com.blockparty.core.model.DisplaySpot
 import com.blockparty.core.model.SpriteAsset
 import com.blockparty.core.model.SpriteKind
 import kotlin.math.roundToInt
@@ -22,7 +23,7 @@ import kotlin.random.Random
  */
 object StarterSet {
     /** Bump when the set changes; worlds with an older version get the new pieces added. */
-    const val VERSION = 1 // pre-release: art tweaks don't bump this
+    const val VERSION = 2
     const val ARTIST = "Starter set"
 
     class Item(val asset: SpriteAsset, val bitmap: Bitmap)
@@ -56,7 +57,13 @@ object StarterSet {
         add(asset("plant", SpriteKind.FURNITURE, "Potted plant", plant()) { copy(alignToGrid = false) })
         add(asset("lamp", SpriteKind.FURNITURE, "Floor lamp", lamp()) { copy(alignToGrid = false) })
         add(asset("stool", SpriteKind.FURNITURE, "Stool", stool()) { copy(alignToGrid = true) })
-        add(asset("display", SpriteKind.FURNITURE, "Display table", displayTable()) { copy(alignToGrid = true, footprintW = 2) })
+        add(asset("display", SpriteKind.FURNITURE, "Display table", displayTable()) {
+            // Three spots along the table top (y = 110 of 300 in the drawing).
+            copy(
+                alignToGrid = true, footprintW = 2,
+                displaySpots = listOf(0.22f, 0.5f, 0.78f).mapIndexed { i, x -> DisplaySpot("starter-display-$i", x, 110f / 300f, 0.32f) },
+            )
+        })
 
         // Storefronts.
         val aspect = Storefront(IsoProjection()).facadeAspect(lotWidth)
@@ -275,10 +282,7 @@ object StarterSet {
         val leg = pen(0xFF4A3426, 14f)
         wobbleLine(60f, 140f, 60f, 290f, leg, 2)
         wobbleLine(460f, 140f, 460f, 290f, leg, 3)
-        // Goods on display.
-        drawCircle(120f, 80f, 30f, fill(0xFFE58BB8)); drawCircle(120f, 80f, 30f, ink)
-        drawRect(200f, 40f, 260f, 110f, fill(0xFF5BC0D9)); wobbleRect(200f, 40f, 260f, 110f, null, 4)
-        drawOval(RectF(310f, 60f, 420f, 110f), fill(0xFFF5C542)); drawOval(RectF(310f, 60f, 420f, 110f), ink)
+        // Products go on top via display spots, so the canvas keeps headroom above the table.
     }
 
     // --- Storefronts ---------------------------------------------------------------------------

@@ -38,6 +38,8 @@ data class SpriteAsset(
      */
     val groundX: Float = 0.5f,
     val groundY: Float = 1f,
+    /** Furniture only: where products can sit. Non-empty makes this a display piece. */
+    val displaySpots: List<DisplaySpot> = emptyList(),
     /** Characters only: what the character is for. */
     val role: CharacterRole = CharacterRole.NONE,
     /** Part of the default starter set that ships with the game, not drawn by a player. */
@@ -80,6 +82,22 @@ data class GridRect(val x: Int, val y: Int, val w: Int, val h: Int) {
         x < other.right && other.x < right && y < other.bottom && other.y < bottom
 }
 
+/**
+ * A spot on a display piece where one product sits.
+ *
+ * @property x where the item's bottom-centre rests, as a fraction of the furniture drawing's width.
+ * @property y same, as a fraction of its height.
+ * @property size item height as a fraction of the furniture's height.
+ */
+@Serializable
+data class DisplaySpot(val id: String, val x: Float, val y: Float, val size: Float = DEFAULT_SIZE) {
+    companion object {
+        const val DEFAULT_SIZE = 0.3f
+        const val MIN_SIZE = 0.08f
+        const val MAX_SIZE = 0.8f
+    }
+}
+
 /** A drawn furniture cutout placed on a lot. Coordinates are absolute street tiles. */
 @Serializable
 data class FurniturePlacement(
@@ -88,6 +106,8 @@ data class FurniturePlacement(
     val x: Int,
     val y: Int,
     val flipped: Boolean = false,
+    /** Display pieces: which offering sits on each display spot (spot id -> offering id). */
+    val stock: Map<String, String> = emptyMap(),
 )
 
 @Serializable

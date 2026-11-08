@@ -14,6 +14,8 @@ import com.blockparty.app.data.WorldRepository
 import com.blockparty.core.art.ImageOps
 import com.blockparty.app.data.StarterSet
 import com.blockparty.core.model.Business
+import com.blockparty.core.model.DisplaySpot
+import com.blockparty.core.sim.DisplayStock
 import com.blockparty.core.model.CharacterRole
 import com.blockparty.core.npc.NpcGenerator
 import com.blockparty.core.npc.StreetCrowd
@@ -41,6 +43,8 @@ sealed interface Screen {
     data object ShopEditor : Screen
     data object OfferingEditor : Screen
     data class Draw(val kind: SpriteKind, val purpose: DrawPurpose) : Screen
+    /** Display spots of a placed piece's drawing, and what this placed piece shows on them. */
+    data class DisplayEditor(val placementId: String) : Screen
 }
 
 class GameViewModel(app: Application) : AndroidViewModel(app) {
@@ -94,6 +98,9 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         val items = withContext(Dispatchers.Default) { StarterSet.generate(lotWidth) }
         val existing = current.sprites.map { it.id }.toSet()
         val added = items.filter { it.asset.id !in existing }
+        // Newer starter versions can add display spots to pieces this world already has.
+        val newSpots = items.filter { it.asset.id in existing && it.asset.displaySpots.isNotEmpty() }
+            .associate { it.asset.id to it.asset.displaySpots }
         withContext(Dispatchers.IO) { added.forEach { sprites.writeFile(it.asset.id, it.bitmap) } }
         added.forEach { sprites.images[it.asset.id] = it.bitmap.asImageBitmap() }
         update { w ->
@@ -102,7 +109,10 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
             val newNpcs = newSprites
                 .filter { it.role == CharacterRole.CUSTOMER && it.id !in npcIds }
                 .map { NpcGenerator.profile("npc-${it.id}", it.id, w.playerLevel) }
-            w.copy(sprites = w.sprites + newSprites, npcs = w.npcs + newNpcs, starterSetVersion = StarterSet.VERSION)
+            val upgraded = w.sprites.map { s ->
+                newSpots[s.id]?.takeIf { s.displaySpots.isEmpty() }?.let { s.copy(displaySpots = it) } ?: s
+            }
+            w.copy(sprites = upgraded + newSprites, npcs = w.npcs + newNpcs, starterSetVersion = StarterSet.VERSION)
         }
     }
 
@@ -304,6 +314,31 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     /** Switches a furniture drawing between leaning into the grid and standing upright. */
     fun setAlignToGrid(spriteId: String, align: Boolean) = update { w ->
         w.copy(sprites = w.sprites.map { if (it.id == spriteId) it.copy(alignToGrid = align) else it })
+    }
+
+    /** Replaces a furniture drawing's display spots (shared by every placed copy). */
+    fun setDisplaySpots(spriteId: String, spots: List<DisplaySpot>) = update { w ->
+        w.copy(sprites = w.sprites.map { if (it.id == spriteId) it.copy(displaySpots = spots) else it })
+    }
+
+    /** Puts a product on a spot of one placed piece, or empties the spot (null). */
+    fun setStock(placementId: String, spotId: String, offeringId: String?) = updateHomeLot { l ->
+        l.copy(furniture = l.furniture.map { p ->
+            if (p.id != placementId) p
+            else p.copy(stock = if (offeringId == null) p.stock - spotId else p.stock + (spotId to offeringId))
+        })
+    }
+
+    /** Fills a placed display piece's empty spots with the shop's products. */
+    fun autoFillStock(placementId: String) {
+        val w = world ?: return
+        val lot = homeLot ?: return
+        val piece = lot.furniture.firstOrNull { it.id == placementId } ?: return
+        val spots = w.sprite(piece.spriteId)?.displaySpots.orEmpty()
+        val products = lot.business?.offerings.orEmpty()
+            .filter { it.kind == com.blockparty.core.model.OfferingKind.PRODUCT }.map { it.id }
+        val filled = DisplayStock.autoFill(spots, piece.stock, products)
+        updateHomeLot { l -> l.copy(furniture = l.furniture.map { if (it.id == placementId) it.copy(stock = filled) else it }) }
     }
 
     fun removeFurniture(id: String) = updateHomeLot { l -> l.copy(furniture = l.furniture.filterNot { it.id == id }) }

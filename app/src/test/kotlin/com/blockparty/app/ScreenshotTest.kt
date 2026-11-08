@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import com.blockparty.app.data.StarterSet
 import com.blockparty.core.model.CharacterRole
+import com.blockparty.core.model.OfferingKind
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import com.blockparty.app.ui.BlockPartyApp
@@ -162,6 +163,22 @@ class ScreenshotTest {
             assertNotNull(id, vm.placeFurniture(x, y))
         }
         vm.startPlacing(null)
+        // Products on the display table.
+        vm.saveDrawing(SampleArt.cake(), template(SpriteKind.PRODUCT, "Cake"), DrawPurpose.FURNITURE)
+        vm.saveDrawing(SampleArt.jar(), template(SpriteKind.PRODUCT, "Jam"), DrawPurpose.FURNITURE)
+        vm.startPlacing(null)
+        val cakeSprite = vm.world!!.sprites.first { it.name == "Cake" }.id
+        val jamSprite = vm.world!!.sprites.first { it.name == "Jam" }.id
+        for ((name, sprite) in listOf("Cake" to cakeSprite, "Jam" to jamSprite)) {
+            vm.startOffering(OfferingKind.PRODUCT)
+            vm.updateDraft { it.copy(name = name, spriteId = sprite) }
+            vm.saveDraft()
+        }
+        val table = vm.homeLot!!.furniture.first { it.spriteId == "starter-display" }
+        assertEquals(3, vm.world!!.sprite("starter-display")!!.displaySpots.size)
+        vm.autoFillStock(table.id)
+        assertEquals(3, vm.homeLot!!.furniture.first { it.id == table.id }.stock.size)
+
         compose.mainClock.autoAdvance = false
         compose.setContent { BlockPartyTheme { BlockPartyApp(vm) } }
         advance(500)
@@ -169,6 +186,10 @@ class ScreenshotTest {
         compose.onNodeWithText("Go inside").performClick()
         advance(1500)
         snapshot("07_starter_interior")
+        compose.runOnIdle { vm.navigate(Screen.DisplayEditor(table.id)) }
+        advance(500)
+        compose.onNodeWithText("On display").assertExists()
+        snapshot("08_display_editor")
     }
 
     @Test
@@ -262,6 +283,20 @@ private object SampleArt {
         drawRect(362f, 412f, 662f, 662f, pen(0xFF8C5A3C.toInt(), 12f))
         drawLine(362f, 537f, 662f, 537f, pen(0xFF8C5A3C.toInt(), 8f))
         drawCircle(512f, 474f, 26f, pen(0xFFE58BB8.toInt(), fill = true))
+    }
+
+    fun cake() = canvas(200, 180) {
+        drawRect(20f, 70f, 180f, 170f, pen(0xFFF7E68B.toInt(), fill = true))
+        drawRect(20f, 70f, 180f, 100f, pen(0xFFE58BB8.toInt(), fill = true))
+        drawRect(20f, 70f, 180f, 170f, pen(0xFF2E2B26.toInt(), 6f))
+        drawLine(100f, 70f, 100f, 25f, pen(0xFFD9443A.toInt(), 8f))
+        drawCircle(100f, 18f, 9f, pen(0xFFF5C542.toInt(), fill = true))
+    }
+
+    fun jar() = canvas(120, 180) {
+        drawRect(15f, 50f, 105f, 175f, pen(0xFFD9443A.toInt(), fill = true))
+        drawRect(10f, 25f, 110f, 50f, pen(0xFF8C5A3C.toInt(), fill = true))
+        drawRect(15f, 50f, 105f, 175f, pen(0xFF2E2B26.toInt(), 6f))
     }
 
     fun facade() = canvas(1024, 457) {

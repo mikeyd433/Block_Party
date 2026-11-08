@@ -33,7 +33,9 @@ import com.blockparty.core.geometry.GridPanel
 import com.blockparty.core.geometry.IsoProjection
 import com.blockparty.core.geometry.Storefront
 import com.blockparty.core.geometry.Vec2
+import com.blockparty.core.model.FurniturePlacement
 import com.blockparty.core.model.GridRect
+import com.blockparty.core.model.SpriteAsset
 import com.blockparty.core.model.Lot
 import com.blockparty.core.model.LotState
 import com.blockparty.core.model.WorldState
@@ -96,6 +98,8 @@ class CutoutItem(
     /** Point of the image (fractions) that rests on [foot]. */
     val anchorX: Float = 0.5f,
     val anchorY: Float = 1f,
+    /** Products standing on a display piece, drawn right after it. */
+    val displayed: List<DisplayedItem> = emptyList(),
 ) {
     /** Screen area covered before animation, for hit testing. */
     val bounds: Rect
@@ -136,6 +140,7 @@ fun StreetScene.interiorCutouts(): List<CutoutItem> {
             panel = panel,
             anchorX = sprite.groundX,
             anchorY = sprite.groundY,
+            displayed = displayedItems(sprite, piece, lot, Size(w, h), center.toOffset(), image, panel),
         )
     }
     val keeper = shopkeeper
@@ -159,6 +164,63 @@ fun StreetScene.interiorCutouts(): List<CutoutItem> {
     crowd.filter { it.insideLotId == lot.id }.mapNotNullTo(items) { pedestrianItem(it) }
     items.sortBy { it.depth }
     return items
+}
+
+/** A product standing on a display spot, positioned before the furniture's animation. */
+class DisplayedItem(val image: ImageBitmap, val point: Offset, val size: Size)
+
+/** Products on a placed display piece, at its drawing's spots. */
+private fun StreetScene.displayedItems(
+    sprite: SpriteAsset,
+    piece: FurniturePlacement,
+    lot: Lot,
+    size: Size,
+    foot: Offset,
+    image: ImageBitmap,
+    panel: GridPanel.Panel?,
+): List<DisplayedItem> {
+    if (sprite.displaySpots.isEmpty() || piece.stock.isEmpty()) return emptyList()
+    val offerings = lot.business?.offerings.orEmpty()
+    val bounds = cutoutBounds(foot, size, sprite.groundX, sprite.groundY, piece.flipped)
+    val furnitureHeight = panel?.let { it.corners[3].y - it.corners[0].y } ?: size.height
+    return sprite.displaySpots.mapNotNull { spot ->
+        val offering = offerings.firstOrNull { it.id == piece.stock[spot.id] } ?: return@mapNotNull null
+        val itemImage = offering.spriteId?.let { images[it] } ?: return@mapNotNull null
+        val point = if (panel != null) {
+            panel.transform.apply(Vec2(spot.x * image.width, spot.y * image.height)).toOffset()
+        } else {
+            val fx = if (piece.flipped) 1f - spot.x else spot.x
+            Offset(bounds.left + fx * bounds.width, bounds.top + spot.y * bounds.height)
+        }
+        val h = spot.size * furnitureHeight
+        val w = h * itemImage.width / itemImage.height.coerceAtLeast(1)
+        DisplayedItem(itemImage, point, Size(w, h))
+    }
+}
+
+/**
+ * Draws a display piece's products so they ride along with the furniture's animation: each
+ * item's resting point is moved the way the furniture is (sway, squash, lift), and the item is
+ * drawn upright there, never mirrored so drawn text stays readable.
+ */
+private fun DrawScope.drawDisplayed(item: CutoutItem) {
+    if (item.displayed.isEmpty()) return
+    val pose = item.pose
+    val foot = item.panel?.foot?.toOffset() ?: item.foot
+    val height = item.panel?.let { it.corners[3].y - it.corners[0].y } ?: item.size.height
+    val rad = Math.toRadians(pose.rotationDeg.toDouble())
+    val cos = kotlin.math.cos(rad).toFloat()
+    val sin = kotlin.math.sin(rad).toFloat()
+    for (d in item.displayed) {
+        val dx = (d.point.x - foot.x) * pose.scaleX
+        val dy = (d.point.y - foot.y) * pose.scaleY
+        val moved = Offset(foot.x + dx * cos - dy * sin, foot.y + dx * sin + dy * cos - pose.lift * height)
+        drawCutout(
+            d.image, moved, d.size,
+            CutoutPose(scaleX = pose.scaleX, scaleY = pose.scaleY, rotationDeg = pose.rotationDeg),
+            mirrored = false,
+        )
+    }
 }
 
 fun npcEffectId(p: Pedestrian) = "npc:${p.id}"
@@ -368,6 +430,7 @@ private fun DrawScope.drawInterior(scene: StreetScene, lot: Lot) {
             item.image, item.foot, item.size, item.pose, item.mirrored, item.shadow,
             anchorX = item.anchorX, anchorY = item.anchorY,
         )
+        drawDisplayed(item)
         if (item.id == scene.selectedId && item.id == SHOPKEEPER_ID) {
             drawCircle(Paper.Accent, radius = 6f, center = item.foot.copy(y = item.foot.y - item.size.height - 14f))
         }

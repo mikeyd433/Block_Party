@@ -32,6 +32,11 @@ walking the street and a default starter set.
 - **Make it 3D**: draw a piece of furniture straight on, then turn it to the street's angle with
   adjustable thickness and keep drawing details on top. Drawings can also be leaned into the
   floor grid as flat panels.
+- **Display pieces**: tap a placed piece, then **Display**, to give its drawing display spots.
+  Tap to add a spot where an item rests, drag to move it, and set each spot's item size. The
+  number of spots is how many items it holds. Each placed copy picks which product sits on each
+  spot (or fills them automatically), and the products stand on the furniture in the shop,
+  moving with it.
 - **Drawn customers** (stage 2): draw a customer and they join the street's NPC pool. The game
   gives them a name, liked tags and a budget (players never choose these). Customers walk the
   sidewalks, and some step into your shop, browse between free tiles and leave. Tap one to see

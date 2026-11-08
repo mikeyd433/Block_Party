@@ -11,6 +11,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.blockparty.app.GameViewModel
 import com.blockparty.app.Screen
 import com.blockparty.app.ui.draw.DrawingScreen
+import com.blockparty.app.ui.shop.DisplayEditorScreen
 import com.blockparty.app.ui.shop.OfferingEditorScreen
 import com.blockparty.app.ui.shop.ShopEditorScreen
 import com.blockparty.app.ui.street.StreetScreen
@@ -30,5 +31,6 @@ fun BlockPartyApp(vm: GameViewModel = viewModel()) {
         Screen.ShopEditor -> ShopEditorScreen(vm, world)
         Screen.OfferingEditor -> OfferingEditorScreen(vm, world)
         is Screen.Draw -> DrawingScreen(vm, world, screen.kind, screen.purpose)
+        is Screen.DisplayEditor -> DisplayEditorScreen(vm, world, screen.placementId)
     }
 }

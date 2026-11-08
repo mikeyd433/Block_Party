@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Storefront
@@ -348,6 +349,10 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                         }) { Icon(Icons.Default.Flip, null); Spacer(Modifier.width(4.dp)); Text("Flip") }
                         TextButton(onClick = { movingId = selectedPiece.id; selectedId = null }) {
                             Icon(Icons.Default.OpenWith, null); Spacer(Modifier.width(4.dp)); Text("Move")
+                        }
+                        TextButton(onClick = { vm.navigate(Screen.DisplayEditor(selectedPiece.id)) }) {
+                            Icon(Icons.Default.Inventory2, null); Spacer(Modifier.width(4.dp))
+                            Text(if (sprite?.displaySpots.isNullOrEmpty()) "Display" else "Display (${sprite!!.displaySpots.size})")
                         }
                         if (sprite != null) {
                             TextButton(onClick = {
