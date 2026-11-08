@@ -41,6 +41,15 @@ data class RemoteLot(
     @SerialName("owner_name") val ownerName: String = "",
     val business: JsonElement? = null,
     val furniture: JsonElement? = null,
+    /** Changes whenever the lot does; compared for equality only, so device clocks don't matter. */
+    @SerialName("updated_at") val updatedAt: String = "",
+)
+
+/** Just enough of a lot to tell whether it changed since the last pull. */
+@Serializable
+data class LotVersion(
+    @SerialName("lot_id") val lotId: String,
+    @SerialName("updated_at") val updatedAt: String = "",
 )
 
 /** A drawing shared with a street: [meta] is the game's SpriteAsset JSON; the PNG is in storage. */
@@ -60,6 +69,8 @@ class StreetsApi(
     private val config: SupabaseConfig,
     private val transport: HttpTransport,
     private val auth: AuthClient,
+    /** The current time as an ISO-8601 timestamp (only needs to differ between updates). */
+    private val nowIso: () -> String = { defaultNowIso() },
 ) {
     suspend fun myStreets(): List<RemoteStreet> {
         val body = get("streets?select=id,name,invite_code,admin_id,time_zone,created_at&order=created_at.asc")
@@ -102,9 +113,18 @@ class StreetsApi(
 
     // --- Playing on a street -----------------------------------------------------------------------
 
-    suspend fun lots(streetId: String): List<RemoteLot> {
-        val body = get("lots?select=lot_id,rect,state,owner_id,owner_name,business,furniture&street_id=eq.$streetId&order=lot_id.asc")
+    /** The street's lots, or only [ids] when given. */
+    suspend fun lots(streetId: String, ids: Collection<String>? = null): List<RemoteLot> {
+        // Lot ids are letters, digits and dashes, so they need no quoting in the filter.
+        val only = ids?.joinToString(",", prefix = "&lot_id=in.(", postfix = ")").orEmpty()
+        val body = get("lots?select=lot_id,rect,state,owner_id,owner_name,business,furniture,updated_at&street_id=eq.$streetId$only&order=lot_id.asc")
         return BackendJson.decodeFromString(ListSerializer(RemoteLot.serializer()), body)
+    }
+
+    /** Every lot's id and change stamp: a cheap check for what changed since the last pull. */
+    suspend fun lotVersions(streetId: String): List<LotVersion> {
+        val body = get("lots?select=lot_id,updated_at&street_id=eq.$streetId&order=lot_id.asc")
+        return BackendJson.decodeFromString(ListSerializer(LotVersion.serializer()), body)
     }
 
     suspend fun sprites(streetId: String): List<RemoteSprite> {
@@ -145,6 +165,8 @@ class StreetsApi(
     /** Saves the contents of one of the player's shops. */
     suspend fun updateLot(streetId: String, lotId: String, ownerName: String, business: JsonElement?, furniture: JsonElement) {
         val body = buildJsonObject {
+            // Marks the lot as changed so other players' cheap version check picks it up.
+            put("updated_at", nowIso())
             put("owner_name", ownerName)
             put("business", business ?: JsonNull)
             put("furniture", furniture)
@@ -258,5 +280,18 @@ class StreetsApi(
 
         /** Invite codes are 6 characters, shown in capitals; people may type them in any case or with spaces. */
         fun normalizeInviteCode(code: String): String = code.filter { it.isLetterOrDigit() }.uppercase()
+
+        /**
+         * Finds an invite code in copied text: the share message ("...enter AB12CD.") or a bare
+         * code. Null if there isn't one, so ordinary clipboard text isn't mistaken for a code.
+         */
+        fun findInviteCode(text: String): String? {
+            val trimmed = text.trim()
+            if (Regex("[A-Za-z0-9]{6}").matches(trimmed)) return trimmed.uppercase()
+            return Regex("(?:enter|code)\\s+([A-Za-z0-9]{6})\\b", RegexOption.IGNORE_CASE).find(text)?.groupValues?.get(1)?.uppercase()
+        }
     }
 }
+
+@OptIn(kotlin.time.ExperimentalTime::class)
+private fun defaultNowIso(): String = kotlin.time.Clock.System.now().toString()

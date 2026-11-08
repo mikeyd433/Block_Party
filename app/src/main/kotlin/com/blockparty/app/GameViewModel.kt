@@ -59,6 +59,8 @@ private const val KEY_LAST_STREET = "last_shared_street"
 private const val SYNC_POLL_MS = 20_000L
 /** Pause after a change before syncing, so a burst of edits goes up together. */
 private const val SYNC_SETTLE_MS = 3_000L
+/** Every this many syncs, download the whole street rather than just what changed (~5 minutes). */
+private const val FULL_PULL_EVERY = 15
 
 enum class DrawPurpose { FURNITURE, FACADE, SHOPKEEPER, OFFERING, CUSTOMER, EMPLOYEE }
 
@@ -224,17 +226,21 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun leftSharedStreet(userId: String, streetId: String) {
         viewModelScope.launch {
-            if (sharedStreetId == streetId) {
+            val repo = if (sharedStreetId == streetId) {
                 syncJob?.cancel()
                 syncJob = null
+                val shared = repository
                 val local = WorldRepository(getApplication())
                 val loaded = withContext(Dispatchers.IO) { local.load() }
                 repository = local
                 show(loaded)
                 backStack = listOf(Screen.Street)
                 prefs.edit().remove(KEY_LAST_STREET).apply()
+                shared
+            } else {
+                WorldRepository.forSharedStreet(getApplication(), userId, streetId)
             }
-            withContext(Dispatchers.IO) { WorldRepository.forSharedStreet(getApplication(), userId, streetId).delete() }
+            withContext(Dispatchers.IO) { repo.delete() }
         }
     }
 
@@ -264,6 +270,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         val syncer = syncerFor(streetId)
         syncJob = viewModelScope.launch {
             var server: ServerStreet? = null
+            var cycles = 0
             while (true) {
                 if (world?.street?.id != streetId) break
                 try {
@@ -272,7 +279,13 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
                     val snapshot = world ?: break
                     val pushed = syncer.push(snapshot, known.lots) { partial -> applySync(streetId) { StreetSyncer.record(it, partial) } }
                     applySync(streetId) { StreetSyncer.record(it, pushed) }
-                    val fresh = syncer.pull()
+                    // Usually only lots that changed; now and then everything, to catch anything missed.
+                    val fresh = syncer.pull(if (cycles++ % FULL_PULL_EVERY == 0) null else server)
+                    // A street always has lots; none means the player can't see it any more.
+                    if (fresh.lots.isEmpty()) {
+                        if (!stillMember(streetId)) { removedFromStreet(streetId); break }
+                        throw BackendException("The street came back empty.")
+                    }
                     server = fresh
                     val current = world ?: break
                     if (current.street.id != streetId) break
@@ -288,6 +301,8 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
                 } catch (e: SignedOutException) {
                     syncProblem = "signed out"
                 } catch (e: BackendException) {
+                    // Calls fail for players removed from the street (e.g. "Not a member of this street").
+                    if (e.code != null && !stillMember(streetId)) { removedFromStreet(streetId); break }
                     syncProblem = "offline"
                     server = null
                 }
@@ -296,6 +311,18 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
                 kotlinx.coroutines.delay(SYNC_SETTLE_MS)
             }
         }
+    }
+
+    /** True unless the server says the player isn't on the street (errors count as "still a member"). */
+    private suspend fun stillMember(streetId: String): Boolean =
+        runCatching { backend.streets.myStreets().any { it.id == streetId } }.getOrDefault(true)
+
+    /** The admin removed the player (or the street is gone): say so and go back to their own street. */
+    private fun removedFromStreet(streetId: String) {
+        val name = world?.street?.name ?: "the street"
+        val userId = world?.myUserId ?: return
+        notices = notices + "You're no longer on $name, so you're back on your own street. Ask a friend there for a new invite code to rejoin."
+        leftSharedStreet(userId, streetId)
     }
 
     /** Applies a sync result to the open street, if it's still the street being synced. */

@@ -85,6 +85,7 @@ import com.blockparty.core.net.StreetsApi
 fun StreetsScreen(vm: GameViewModel, online: OnlineViewModel, world: WorldState) {
     LaunchedEffect(Unit) { online.start() }
     var dialog by remember { mutableStateOf<String?>(null) } // "create" or "join"
+    val context = LocalContext.current
     val account = online.account
 
     Scaffold(
@@ -201,6 +202,8 @@ fun StreetsScreen(vm: GameViewModel, online: OnlineViewModel, world: WorldState)
             capitalization = KeyboardCapitalization.Characters,
             maxLength = 12,
             valid = { StreetsApi.normalizeInviteCode(it).length == 6 },
+            // A copied invite message (or code) fills itself in.
+            initial = { clipboardText(context)?.let(StreetsApi::findInviteCode).orEmpty() },
             onDismiss = { dialog = null },
             onConfirm = { code -> online.joinStreet(code) { id -> dialog = null; vm.navigate(Screen.SharedStreet(id)) } },
         )
@@ -492,10 +495,11 @@ private fun TextEntryDialog(
     capitalization: KeyboardCapitalization,
     maxLength: Int,
     valid: (String) -> Boolean = { it.isNotBlank() },
+    initial: () -> String = { "" },
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit,
 ) {
-    var text by rememberSaveable { mutableStateOf("") }
+    var text by rememberSaveable { mutableStateOf(initial()) }
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(title) },
@@ -540,6 +544,11 @@ private fun shareInvite(context: Context, street: RemoteStreet) {
     }
     context.startActivity(Intent.createChooser(send, "Invite friends"))
 }
+
+private fun clipboardText(context: Context): String? = runCatching {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
+}.getOrNull()
 
 private fun copyCode(context: Context, code: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

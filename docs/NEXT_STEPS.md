@@ -41,14 +41,22 @@ Keep in mind: database/storage/bandwidth limits and free-plan pausing are shared
      20 s. Other players' shops can be visited but not changed (the view model also ignores
      edits to them).
    Still to do:
+   - Pulls are incremental: a cheap `lot_id,updated_at` check, then only lots whose stamp
+     changed (compared for equality, so device clocks don't matter). Shop updates set
+     `updated_at`; claim / close / merge set it on the server. Every 15th pull (~5 minutes)
+     downloads the whole street, which also catches `remove_member` (it doesn't touch
+     `updated_at`). Drawings' details are always fetched in full (they're small).
+   - Removed by the admin (or the street is gone): the sync notices, tells the player,
+     forgets the local copy and goes back to the single-player street.
+   - Join with code fills itself in from a copied invite message or code.
+   Still to do:
    - **Realtime updates** instead of the 20 s poll (a websocket client for Supabase Realtime,
-     or supabase-kt after a Kotlin upgrade). Pulls currently fetch the whole street each time.
-   - **Removed by the admin:** the device keeps trying to sync and shows "offline". It should
-     notice it's no longer a member, say so, and forget the local copy (leaving does this).
+     or supabase-kt after a Kotlin upgrade).
+   - **Invite links** that open the app need a website domain the owner controls (for Android
+     App Links' assetlinks.json); Supabase won't serve web pages from its own domain.
    - Deleting another player's drawing from your picker only hides it until the next pull.
    - Customer profiles for other players' drawings use your level's tag set, so tastes can
      differ slightly between devices with different levels.
-   - **Invite links** (a deep link that opens Join with the code filled in).
    - If the project requires email confirmation, the confirmation link goes to the project's
      Site URL (set for Not A Book Club). The app tells players to confirm and then sign in.
 2. **Stages 8–9:** street chat, notes at shop doors, gifting, loans, buying shops from each

@@ -190,4 +190,56 @@ class BackendTest {
         assertEquals("https://proj.supabase.co/auth/v1/logout?scope=local", t.sent.single().url)
         assertFailsWith<SignedOutException> { apis.first.validSession() }
     }
+
+    @Test
+    fun inviteCodesAreFoundInCopiedText() {
+        val share = "Come run a shop on my street \"Elm St\" in Block Party! Open Streets, tap Join with code and enter AB12CD."
+        assertEquals("AB12CD", StreetsApi.findInviteCode(share))
+        assertEquals("AB12CD", StreetsApi.findInviteCode("  ab12cd \n"))
+        assertEquals("QW34ER", StreetsApi.findInviteCode("the code QW34ER works"))
+        assertNull(StreetsApi.findInviteCode("See you at the bakery tomorrow"))
+        assertNull(StreetsApi.findInviteCode("Enter the shop"))
+    }
+
+    @Test
+    fun laterPullsOnlyDownloadLotsThatChanged() = runTest {
+        val (t, _, apis) = setup(signedIn)
+        val files = object : com.blockparty.core.net.DrawingFiles {
+            override suspend fun read(spriteId: String): ByteArray? = null
+            override suspend fun write(spriteId: String, png: ByteArray) {}
+        }
+        val syncer = com.blockparty.core.net.StreetSyncer(apis.second, "s1", files)
+        fun lot(id: String, stamp: String) =
+            """{"lot_id":"$id","rect":{"x":1,"y":0,"w":6,"h":6},"state":"VACANT","owner_id":null,"owner_name":"","business":null,"furniture":[],"updated_at":"$stamp"}"""
+        t.reply(200, "[${lot("lot-0", "t0")},${lot("lot-1", "t0")},${lot("lot-2", "t0")}]")
+        t.reply(200, "[]")
+        val first = syncer.pull()
+        assertEquals(3, first.lots.size)
+
+        // lot-1 changed, lot-2 was merged away, lot-3 is new.
+        t.reply(200, """[{"lot_id":"lot-0","updated_at":"t0"},{"lot_id":"lot-1","updated_at":"t1"},{"lot_id":"lot-3","updated_at":"t1"}]""")
+        t.reply(200, "[${lot("lot-1", "t1")},${lot("lot-3", "t1")}]")
+        t.reply(200, "[]")
+        val sent = t.sent.size
+        val second = syncer.pull(first)
+        assertEquals(listOf("lot-0", "lot-1", "lot-3"), second.lots.map { it.lotId })
+        assertEquals("t1", second.lots[1].updatedAt)
+        assertTrue(t.sent[sent].url.contains("select=lot_id,updated_at&"), "cheap version check first")
+        assertTrue(t.sent[sent + 1].url.contains("&lot_id=in.(lot-1,lot-3)&"))
+
+        // Nothing changed: only the version check (and drawings) go out.
+        t.reply(200, """[{"lot_id":"lot-0","updated_at":"t0"},{"lot_id":"lot-1","updated_at":"t1"},{"lot_id":"lot-3","updated_at":"t1"}]""")
+        t.reply(200, "[]")
+        val before = t.sent.size
+        assertEquals(second.lots, syncer.pull(second).lots)
+        assertEquals(2, t.sent.size - before)
+    }
+
+    @Test
+    fun shopUpdatesStampTheLotSoOthersNoticeTheChange() = runTest {
+        val (t, _, apis) = setup(signedIn)
+        t.reply(204, "")
+        apis.second.updateLot("s1", "lot-0", "Ann", null, kotlinx.serialization.json.JsonArray(emptyList()))
+        assertTrue(t.sent.single().body!!.contains("\"updated_at\":\""))
+    }
 }

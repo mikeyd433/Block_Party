@@ -320,7 +320,22 @@ class StreetSyncer(private val api: StreetsApi, val streetId: String, private va
         return done
     }
 
-    suspend fun pull(): ServerStreet = ServerStreet(api.lots(streetId), api.sprites(streetId))
+    /**
+     * Fetches the street. With a [previous] pull, only lots whose change stamp differs are
+     * downloaded again (lots hold whole shops, reviews included, so this saves most of the
+     * traffic); new lots come in and removed ones drop out. Drawings' details are small and
+     * always fetched in full.
+     */
+    suspend fun pull(previous: ServerStreet? = null): ServerStreet {
+        if (previous == null) return ServerStreet(api.lots(streetId), api.sprites(streetId))
+        val versions = api.lotVersions(streetId)
+        val known = previous.lots.associateBy { it.lotId }
+        val changed = versions.filter { v -> known[v.lotId]?.updatedAt != v.updatedAt }.map { it.lotId }
+        val fresh = if (changed.isEmpty()) emptyMap() else api.lots(streetId, changed).associateBy { it.lotId }
+        // A lot that changed again between the two requests is fetched next time.
+        val lots = versions.mapNotNull { v -> fresh[v.lotId] ?: known[v.lotId] }
+        return ServerStreet(lots, api.sprites(streetId))
+    }
 
     suspend fun playerState(): PlayerState? = api.playerState(streetId)?.let(SyncCodec::decodePlayerState)
 

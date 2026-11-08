@@ -305,7 +305,10 @@ class ScreenshotTest {
         snapshot("07_starter_interior")
 
         // Keep the shop open until it has earned money and been reviewed.
+        // Measure from here: a service may already have been paid for while waiting for one above.
         val startCoins = vm.world!!.coins
+        val startRevenue = vm.world!!.lot(WorldFactory.HOME_LOT_ID)!!.business!!.revenueTotal
+        val startSupplies = vm.world!!.economy.books.sumOf { it.supplies }
         for (i in 0 until 1200) {
             val w = vm.world!!
             if (w.coins > startCoins && w.lot(WorldFactory.HOME_LOT_ID)!!.business!!.reviews.isNotEmpty()) break
@@ -313,8 +316,8 @@ class ScreenshotTest {
         }
         val business = vm.world!!.lot(WorldFactory.HOME_LOT_ID)!!.business!!
         assertTrue("earned coins", vm.world!!.coins > startCoins)
-        val supplies = vm.world!!.economy.books.sumOf { it.supplies } - cost // services use supplies too
-        assertEquals(vm.world!!.coins - startCoins + supplies, business.revenueTotal)
+        val supplies = vm.world!!.economy.books.sumOf { it.supplies } - startSupplies // services use supplies too
+        assertEquals(vm.world!!.coins - startCoins + supplies, business.revenueTotal - startRevenue)
         val stockLeft = business.offerings.filter { it.kind == OfferingKind.PRODUCT }.sumOf { it.stock }
         val productsSold = 15 - stockLeft
         assertTrue("stock goes down as products sell", productsSold >= 0)

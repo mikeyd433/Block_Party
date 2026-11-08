@@ -22,7 +22,12 @@ class WorldRepository(private val file: File) {
 
     fun exists(): Boolean = file.exists()
 
+    /** Set by [delete]: saves still queued for this street are dropped instead of recreating it. */
+    @Volatile private var deleted = false
+
+    @Synchronized
     fun delete() {
+        deleted = true
         file.delete()
     }
 
@@ -37,6 +42,7 @@ class WorldRepository(private val file: File) {
     /** Writes atomically so a crash mid-save can't corrupt the world. */
     @Synchronized
     fun save(world: WorldState) {
+        if (deleted) return
         file.parentFile?.mkdirs()
         val tmp = File(file.parentFile, file.name + ".tmp")
         tmp.writeText(WorldCodec.encode(world))
