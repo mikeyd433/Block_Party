@@ -36,6 +36,7 @@ import com.blockparty.core.geometry.Storefront
 import com.blockparty.core.geometry.Vec2
 import com.blockparty.core.model.FurniturePlacement
 import com.blockparty.core.model.GridRect
+import com.blockparty.core.model.OfferingKind
 import com.blockparty.core.model.SpriteAsset
 import com.blockparty.core.model.Lot
 import com.blockparty.core.model.LotState
@@ -192,6 +193,7 @@ private fun StreetScene.displayedItems(
     val furnitureHeight = panel?.let { it.corners[3].y - it.corners[0].y } ?: size.height
     return sprite.displaySpots.mapNotNull { spot ->
         val offering = offerings.firstOrNull { it.id == piece.stock[spot.id] } ?: return@mapNotNull null
+        if (offering.kind == OfferingKind.PRODUCT && offering.stock <= 0) return@mapNotNull null // sold out
         val itemImage = offering.spriteId?.let { images[it] } ?: return@mapNotNull null
         val point = if (panel != null) {
             panel.transform.apply(Vec2(spot.x * image.width, spot.y * image.height)).toOffset()

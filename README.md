@@ -5,8 +5,8 @@ business can be anything the player wants. Nearly everything in the world is dra
 players and stands in the scene as a flat paper cutout. The full design is in
 [`docs/SPEC.md`](docs/SPEC.md).
 
-Build stages 1–3 are done: a single-player street prototype with drawn customers who walk the
-street, shop by their tastes and budget, pay, and leave reviews.
+Build stages 1–4 are done: a single-player street prototype with drawn customers who walk the
+street, shop by their tastes and budget, pay, and leave reviews, plus running costs and debt.
 
 ## What works so far
 
@@ -55,6 +55,14 @@ street, shop by their tastes and budget, pay, and leave reviews.
   matches and misses, value for money, things they couldn't afford, queue time). Coins and the
   shop's rating show in the top bar; tap it for stats and reviews. Staff hand the service's
   drawing to the customer at service stations, and the customer leaves with it.
+- **Economy** (stage 4): game time follows the street's timezone, and a game day is a real day.
+  Rent is charged per lot at midnight (prime middle lots cost more; days missed while away are
+  billed on return with a notice). Products have stock: shelf space is 5 units per display spot
+  showing them (or 8 behind the counter), restocked from the supplier at a per-unit cost that
+  depends on the supply quality (basic, standard, fancy), which also affects reviews. Services
+  use supplies each time. Sold-out products vanish from displays and annoy customers. Coins can
+  go negative; after 7 days in debt a shop closes, its furniture goes to storage and the lot
+  becomes vacant. The money section (tap the top bar) shows daily income and costs.
 - **Starter set**: a small hand-made set of customers, furniture (including 3D pieces) and
   storefronts is added to a new street so it isn't empty. Player-drawn customers gradually
   replace the starter crowd: after 6 drawn customers, starter customers stop appearing.
@@ -107,5 +115,4 @@ with Robolectric native graphics and writes PNGs to `app/build/screenshots/`.
 
 ## Next up (from the spec's build order)
 
-4. Economy basics: rent, restocking, wages, debt with a grace period.
 5. Supabase backend: auth, shared streets, invite codes, offline catch-up.

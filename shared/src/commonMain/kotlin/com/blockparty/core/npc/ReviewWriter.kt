@@ -16,8 +16,12 @@ data class VisitReport(
     val waitedSec: Float,
     val queued: Boolean,
     val gotService: Boolean,
-    /** Product/service quality bonus (upgrades and staff, later). */
+    /** Product/service quality bonus (supplies now; upgrades and staff later). */
     val quality: Float = 0f,
+    /** Wanted something that was sold out. */
+    val foundEmpty: Boolean = false,
+    /** Extra star adjustment from staff (friendly or chatty employees). */
+    val staffBonus: Float = 0f,
 ) {
     val matchedTags: List<String> get() = profile.tagIds.filter { it in catalog.allTags }
     val missedTags: List<String> get() = profile.tagIds.filter { it !in catalog.allTags }
@@ -47,7 +51,8 @@ object ReviewWriter {
                 else -> 0f
             }
         }
-        s += r.quality
+        if (r.foundEmpty && !r.gotSomething) s -= 0.6f
+        s += r.quality + r.staffBonus
         return s.roundToInt().coerceIn(1, 5)
     }
 
@@ -79,7 +84,12 @@ object ReviewWriter {
                 }
             }
             pricey != null -> parts += couldNotAfford.random(random).fill(pricey.name)
+            r.foundEmpty -> parts += soldOut.random(random)
             !r.gotSomething && !saidMissing -> parts += nothingForMe.random(random)
+        }
+        if (r.gotSomething && random.nextFloat() < 0.5f) {
+            if (r.quality >= 0.3f) parts += goodQuality.random(random)
+            else if (r.quality <= -0.3f) parts += poorQuality.random(random)
         }
 
         if (r.queued) {
@@ -129,6 +139,9 @@ object ReviewWriter {
         "The {x} looked great, but it's way out of my budget.", "Wanted the {x}, couldn't afford it.",
         "Maybe one day I can afford the {x}.",
     )
+    private val soldOut = listOf("Everything I wanted was sold out.", "Shelves were looking bare.", "Came back to empty shelves.")
+    private val goodQuality = listOf("Really good quality.", "You can tell they use the good stuff.", "Top quality.")
+    private val poorQuality = listOf("Felt a bit cheap.", "Quality could be better.", "Fell apart a bit, honestly.")
     private val nothingForMe = listOf("Didn't find anything for me.", "Browsed, but nothing grabbed me.", "Left empty-handed.")
     private val longWait = listOf("Waited forever in line.", "The queue took ages.", "So much waiting.")
     private val someWait = listOf("Had to wait a bit.", "The line was slow.")

@@ -151,6 +151,41 @@ data class Offering(
     val priceCoins: Long,
     val spriteId: String? = null,
     val tagIds: List<String> = emptyList(),
+    /** Products only: units in the shop right now. */
+    val stock: Int = 5,
+    /** Quality of the supplies used: better costs more and pleases customers. */
+    val supplyTier: SupplyTier = SupplyTier.STANDARD,
+)
+
+/** Supplier quality for a product or service. Costs are per unit (or per service performed). */
+@Serializable
+enum class SupplyTier(val label: String, val unitCost: Long, val serviceCost: Long, val quality: Float) {
+    BASIC("Basic", unitCost = 2, serviceCost = 1, quality = -0.35f),
+    STANDARD("Standard", unitCost = 5, serviceCost = 3, quality = 0f),
+    FANCY("Fancy", unitCost = 12, serviceCost = 8, quality = 0.4f),
+}
+
+/** One day's money in and out, for the money screen. */
+@Serializable
+data class DayBook(
+    /** Days since 1970-01-01 in the street's timezone. */
+    val day: Long,
+    val sales: Long = 0,
+    val rent: Long = 0,
+    val wages: Long = 0,
+    val supplies: Long = 0,
+) {
+    val net: Long get() = sales - rent - wages - supplies
+}
+
+@Serializable
+data class EconomyState(
+    /** Last day rent and wages were charged (0 = never; the first settle just starts the clock). */
+    val lastBilledDay: Long = 0,
+    /** First day the player's coins were below zero, or null when not in debt. */
+    val debtSinceDay: Long? = null,
+    /** Most recent day first. */
+    val books: List<DayBook> = emptyList(),
 )
 
 @Serializable
@@ -167,6 +202,7 @@ data class Business(
     val revenueTotal: Long = 0,
     val customersServed: Int = 0,
     val itemsSold: Int = 0,
+    val employees: List<Employee> = emptyList(),
 ) {
     /** Average stars of recent reviews (this business's reputation), or null before any. */
     val rating: Float?
@@ -176,6 +212,46 @@ data class Business(
         const val MAX_REVIEWS = 60
         const val RATING_WINDOW = 30
     }
+}
+
+/** What an employee does in the shop. */
+@Serializable
+enum class EmployeeRole(val label: String, val description: String) {
+    CASHIER("Cashier", "Works the checkout: customers pay faster."),
+    STOCKER("Stocker", "Restocks shelves from the supplier, even while you're away."),
+    SERVER("Server", "Provides services at service stations."),
+    GREETER("Greeter", "Stands by the door and pulls in more passers-by."),
+}
+
+/** Personality quirks with trade-offs, assigned by the game. */
+@Serializable
+enum class EmployeeTrait(val label: String, val description: String) {
+    FAST("Fast", "Works quicker."),
+    FRIENDLY("Friendly", "Customers like them: better reviews."),
+    CAREFUL("Careful", "Slower, but never wastes stock."),
+    CHATTY("Chatty", "Customers enjoy them, but they work slower."),
+    NIGHT_OWL("Night owl", "Better in the evening and at night."),
+    EARLY_BIRD("Early bird", "Better in the morning."),
+    CLUMSY("Clumsy", "Sometimes wastes a unit when restocking."),
+    STEADY("Steady", "Morale drops more slowly."),
+}
+
+/** An NPC employee working at a business. Traits and wage ask come from the game. */
+@Serializable
+data class Employee(
+    val id: String,
+    val spriteId: String,
+    val name: String,
+    val role: EmployeeRole,
+    val traits: List<EmployeeTrait>,
+    val wagePerDay: Long,
+    val hiredDay: Long,
+    /** Experience from working shifts; levels make them better. */
+    val xp: Int = 0,
+    /** 0..100. Low morale leads to quitting. */
+    val morale: Int = 75,
+) {
+    val level: Int get() = 1 + xp / 100
 }
 
 /** A customer's review: star rating plus text built from hand-written phrases. */
@@ -214,6 +290,8 @@ data class Street(
     val sidewalkRows: Int = 1,
     val roadRows: Int = 3,
     val lots: List<Lot>,
+    /** IANA timezone the street's game time follows (empty = the device's). */
+    val timeZoneId: String = "",
 ) {
     val totalDepth get() = lotDepth + sidewalkRows * 2 + roadRows
     val roadStartRow get() = lotDepth + sidewalkRows
@@ -232,6 +310,9 @@ data class WorldState(
     val npcs: List<NpcProfile> = emptyList(),
     /** Version of the default starter set already added to this world. */
     val starterSetVersion: Int = 0,
+    val economy: EconomyState = EconomyState(),
+    /** Furniture (sprite ids) taken out of closed shops, ready to place again. */
+    val storage: List<String> = emptyList(),
 ) {
     fun sprite(id: String?): SpriteAsset? = id?.let { sid -> sprites.firstOrNull { it.id == sid } }
 

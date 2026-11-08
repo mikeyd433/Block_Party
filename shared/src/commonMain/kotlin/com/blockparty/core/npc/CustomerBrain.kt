@@ -15,6 +15,10 @@ data class CatalogItem(
     val kind: OfferingKind,
     val price: Long,
     val tags: List<String>,
+    /** Units in stock (services are unlimited). */
+    val stock: Int = Int.MAX_VALUE,
+    /** Quality from supplies (and later upgrades and staff); feeds into reviews. */
+    val quality: Float = 0f,
 )
 
 /** What a shop offers and how it's rated, as customers see it. */
@@ -41,7 +45,13 @@ class ShopCatalog(
             if (business == null) return null
             return ShopCatalog(
                 shopTags = business.tagIds,
-                items = business.offerings.map { CatalogItem(it.id, it.name, it.kind, it.priceCoins, it.tagIds) },
+                items = business.offerings.map {
+                    CatalogItem(
+                        it.id, it.name, it.kind, it.priceCoins, it.tagIds,
+                        stock = if (it.kind == OfferingKind.PRODUCT) it.stock else Int.MAX_VALUE,
+                        quality = it.supplyTier.quality,
+                    )
+                },
                 rating = business.rating,
             )
         }

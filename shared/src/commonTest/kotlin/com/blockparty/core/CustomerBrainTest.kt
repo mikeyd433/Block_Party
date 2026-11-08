@@ -76,6 +76,36 @@ class CustomerBrainTest {
     }
 
     @Test
+    fun soldOutItemsDontSellAndAnnoyCustomers() {
+        val world = WorldFactory.newWorld()
+        val lot = world.lot(WorldFactory.HOME_LOT_ID)!!.rect
+        val free = buildSet { for (x in lot.x until lot.right) for (y in lot.y until lot.bottom) add(x to y) }
+        val catalog = ShopCatalog(listOf("cozy", "food"), listOf(item("pie", 8, "food").copy(stock = 0)), rating = null)
+        val door = ShopDoor(WorldFactory.HOME_LOT_ID, lot, free, visitChance = { 0.9f }, catalog = catalog)
+        val crowd = StreetCrowd(Random(4))
+        val pool = (0 until 6).map { NpcProfile("n$it", "s$it", "P$it", listOf("cozy", "food"), 40, 1.2f) }
+        val events = ArrayList<CrowdEvent>()
+        repeat(8000) {
+            crowd.update(0.05f, world.street, listOf(door)) { r -> pool[r.nextInt(pool.size)] }
+            events += crowd.drainEvents()
+        }
+        assertTrue(events.none { it is CrowdEvent.Sale }, "nothing in stock, nothing sold")
+        val reviews = events.filterIsInstance<CrowdEvent.Review>()
+        assertTrue(reviews.isNotEmpty() && reviews.all { it.stars <= 4 })
+    }
+
+    @Test
+    fun qualityAndEmptyShelvesShowInStars() {
+        val catalog = ShopCatalog(listOf("cozy"), listOf(item("pie", 20, "food")), rating = null)
+        fun report(quality: Float, empty: Boolean, bought: Boolean) = VisitReport(
+            cozyFoodie, catalog, bought = if (bought) catalog.items else emptyList(), tooPricey = emptyList(),
+            waitedSec = 8f, queued = false, gotService = false, quality = quality, foundEmpty = empty,
+        )
+        assertTrue(ReviewWriter.stars(report(0.4f, false, true)) >= ReviewWriter.stars(report(-0.35f, false, true)))
+        assertTrue(ReviewWriter.stars(report(0f, true, false)) < ReviewWriter.stars(report(0f, false, true)))
+    }
+
+    @Test
     fun customersBuyFromDisplaysPayAtCheckoutAndReview() {
         val world = WorldFactory.newWorld()
         val lot = world.lot(WorldFactory.HOME_LOT_ID)!!.rect

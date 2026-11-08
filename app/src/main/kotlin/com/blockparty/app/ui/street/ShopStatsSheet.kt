@@ -23,11 +23,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.blockparty.app.ui.theme.Paper
 import com.blockparty.core.model.Business
+import com.blockparty.core.model.DayBook
+import androidx.compose.material3.OutlinedButton
 
 /** The shop's numbers and what customers are saying. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ShopStatsSheet(business: Business, coins: Long, onDismiss: () -> Unit) {
+fun ShopStatsSheet(
+    business: Business,
+    coins: Long,
+    rentPerDay: Long,
+    wagesPerDay: Long,
+    books: List<DayBook>,
+    restockNeed: Pair<Int, Long>,
+    onRestockAll: () -> Unit,
+    debtDaysLeft: Int?,
+    today: Long,
+    onDismiss: () -> Unit,
+) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(horizontal = 16.dp)) {
             Text(business.name.ifBlank { "My Shop" }, style = MaterialTheme.typography.titleLarge)
@@ -51,6 +64,33 @@ fun ShopStatsSheet(business: Business, coins: Long, onDismiss: () -> Unit) {
                 Stat("Earned", "${business.revenueTotal}", Modifier.weight(1f))
                 Stat("Customers", "${business.customersServed}", Modifier.weight(1f))
                 Stat("Sold", "${business.itemsSold}", Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(12.dp))
+            Text("Money", style = MaterialTheme.typography.titleMedium)
+            if (debtDaysLeft != null) {
+                Text(
+                    "You're in debt. Get back above zero within $debtDaysLeft day${if (debtDaysLeft == 1) "" else "s"} or this shop closes.",
+                    color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            Text(
+                "Rent ${rentPerDay}¢/day" + (if (wagesPerDay > 0) " · wages ${wagesPerDay}¢/day" else "") + " · charged at midnight",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            for (b in books.take(5)) {
+                Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                    Text(dayLabel(b.day, today), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "+${b.sales}  −${b.rent + b.wages + b.supplies}  = ${if (b.net >= 0) "+" else ""}${b.net}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (b.net < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+            if (restockNeed.first > 0) {
+                OutlinedButton(onClick = onRestockAll, modifier = Modifier.padding(top = 4.dp)) {
+                    Text("Restock all: ${restockNeed.first} units for ${restockNeed.second}¢")
+                }
             }
             Spacer(Modifier.height(12.dp))
             Text("Reviews", style = MaterialTheme.typography.titleMedium)
@@ -86,6 +126,12 @@ private fun Stat(label: String, value: String, modifier: Modifier = Modifier) {
             Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+}
+
+private fun dayLabel(day: Long, today: Long): String = when (day) {
+    today -> "Today"
+    today - 1 -> "Yesterday"
+    else -> java.time.LocalDate.ofEpochDay(day).let { "${it.dayOfWeek.name.lowercase().replaceFirstChar(Char::uppercase).take(3)} ${it.dayOfMonth}" }
 }
 
 private fun stars(n: Int) = "★".repeat(n.coerceIn(0, 5)) + "☆".repeat(5 - n.coerceIn(0, 5))

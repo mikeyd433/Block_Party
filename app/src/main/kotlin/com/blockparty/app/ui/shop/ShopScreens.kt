@@ -57,6 +57,9 @@ import com.blockparty.core.model.Business
 import com.blockparty.core.model.BusinessMode
 import com.blockparty.core.model.Offering
 import com.blockparty.core.model.OfferingKind
+import com.blockparty.core.model.SupplyTier
+import com.blockparty.core.sim.Economy
+import androidx.compose.material3.FilterChip
 import com.blockparty.core.model.SpriteKind
 import com.blockparty.core.model.TagLibrary
 import com.blockparty.core.model.WorldState
@@ -210,7 +213,23 @@ private fun OfferingRow(vm: GameViewModel, offering: Offering, onClick: () -> Un
                     maxLines = 1,
                 )
             }
-            Text("${offering.priceCoins} ¢", style = MaterialTheme.typography.titleMedium)
+            Column(horizontalAlignment = Alignment.End) {
+                Text("${offering.priceCoins} ¢", style = MaterialTheme.typography.titleMedium)
+                if (offering.kind == OfferingKind.PRODUCT) {
+                    val lot = vm.homeLot
+                    val world = vm.world
+                    if (lot != null && world != null) {
+                        val cap = Economy.capacity(offering, lot, world::sprite)
+                        val (units, cost) = Economy.restockNeed(offering, lot, world::sprite)
+                        Text(
+                            if (offering.stock == 0) "Sold out" else "${offering.stock}/$cap in stock",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (offering.stock == 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        if (units > 0) TextButton(onClick = { vm.restock(offering.id) }) { Text("Restock ($cost¢)") }
+                    }
+                }
+            }
         }
     }
 }
@@ -275,6 +294,36 @@ fun OfferingEditorScreen(vm: GameViewModel, world: WorldState) {
                     },
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+            HorizontalDivider()
+            Section("Supplies") {
+                Text(
+                    if (draft.kind == OfferingKind.SERVICE) "Supplies used each time you perform it. Better supplies cost more and earn better reviews."
+                    else "What you pay the supplier per unit. Better supplies cost more and earn better reviews.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (tier in SupplyTier.entries) {
+                        val cost = if (draft.kind == OfferingKind.SERVICE) tier.serviceCost else tier.unitCost
+                        FilterChip(
+                            selected = draft.supplyTier == tier,
+                            onClick = { vm.updateDraft { it.copy(supplyTier = tier) } },
+                            label = { Text("${tier.label} · $cost¢") },
+                        )
+                    }
+                }
+                val unitCost = if (draft.kind == OfferingKind.SERVICE) draft.supplyTier.serviceCost else draft.supplyTier.unitCost
+                Text(
+                    "Profit per sale: ${draft.priceCoins - unitCost}¢",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (draft.priceCoins - unitCost < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                )
+                if (draft.kind == OfferingKind.PRODUCT && isNew) {
+                    Text(
+                        "New products start with no stock. Restock them from the shop editor after saving.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             HorizontalDivider()
             Section("Picture") {

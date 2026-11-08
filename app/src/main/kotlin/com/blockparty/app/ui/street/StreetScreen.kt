@@ -84,6 +84,8 @@ import com.blockparty.core.model.NpcProfile
 import com.blockparty.core.npc.NpcPool
 import com.blockparty.core.npc.CustomerBrain
 import com.blockparty.core.npc.ShopCatalog
+import com.blockparty.core.sim.Economy
+import androidx.compose.material3.AssistChip
 import com.blockparty.core.npc.CrowdEvent
 import com.blockparty.core.npc.ShopDoor
 import com.blockparty.core.npc.Fixture
@@ -324,6 +326,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
             subtitle = world.street.name + if (interior) " · inside" else "",
             coins = world.coins,
             rating = homeLot.business?.rating,
+            debtDaysLeft = Economy.graceDaysLeft(world, vm.today()),
             onClick = { showStats = true },
             modifier = Modifier.align(Alignment.TopCenter),
         )
@@ -394,7 +397,16 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                 }
                 selectedId == SHOPKEEPER_ID && keeperSprite != null ->
                     SelectionCard(sprite = keeperSprite, vm = vm, onClose = { selectedId = null }) {}
-                interior -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                interior -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    val soldOut = homeLot.business?.offerings.orEmpty().count { it.kind == OfferingKind.PRODUCT && it.stock == 0 }
+                    if (soldOut > 0) {
+                        AssistChip(
+                            onClick = vm::restockAll,
+                            label = { Text("$soldOut sold out · Restock all (${vm.restockAllNeed().second}¢)") },
+                            modifier = Modifier.padding(bottom = 6.dp),
+                        )
+                    }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     FilledTonalIconButton(onClick = ::exitToStreet, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Default.Map, "Back to street")
                     }
@@ -404,6 +416,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                     FilledTonalButton(onClick = { vm.navigate(Screen.ShopEditor) }) {
                         Icon(Icons.Default.Edit, null); Spacer(Modifier.width(6.dp)); Text("Shop", maxLines = 1)
                     }
+                }
                 }
                 else -> Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     FilledTonalIconButton(onClick = { showPeople = true }, modifier = Modifier.size(48.dp)) {
@@ -421,7 +434,20 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
     }
 
     if (showStats) {
-        homeLot.business?.let { ShopStatsSheet(it, world.coins, onDismiss = { showStats = false }) }
+        homeLot.business?.let { business ->
+            ShopStatsSheet(
+                business = business,
+                coins = world.coins,
+                rentPerDay = Economy.rentPerDay(homeLot, world.street),
+                wagesPerDay = Economy.wagesPerDay(business),
+                books = world.economy.books,
+                restockNeed = vm.restockAllNeed(),
+                onRestockAll = vm::restockAll,
+                debtDaysLeft = Economy.graceDaysLeft(world, vm.today()),
+                today = vm.today(),
+                onDismiss = { showStats = false },
+            )
+        }
     }
 
     if (showPeople) {
@@ -507,6 +533,7 @@ private fun TopBar(
     subtitle: String,
     coins: Long,
     rating: Float?,
+    debtDaysLeft: Int?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -526,13 +553,22 @@ private fun TopBar(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.MonetizationOn, "Coins", Modifier.size(16.dp), tint = Paper.Coin)
                     Spacer(Modifier.width(3.dp))
-                    Text("$coins", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Text(
+                        "$coins", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
+                        color = if (coins < 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+                    )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Star, "Rating", Modifier.size(16.dp), tint = Paper.Star)
                     Spacer(Modifier.width(3.dp))
                     Text(rating?.let { "%.1f".format(it) } ?: "–", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                 }
+            }
+            if (debtDaysLeft != null) {
+                Text(
+                    "In debt: $debtDaysLeft day${if (debtDaysLeft == 1) "" else "s"} to recover",
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error,
+                )
             }
         }
     }

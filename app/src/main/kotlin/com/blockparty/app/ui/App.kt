@@ -26,6 +26,14 @@ fun BlockPartyApp(vm: GameViewModel = viewModel()) {
     BackHandler(enabled = vm.backStack.size > 1) {
         if (vm.screen == Screen.OfferingEditor) vm.discardDraft() else vm.back()
     }
+    if (vm.notices.isNotEmpty()) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = vm::dismissNotices,
+            title = { androidx.compose.material3.Text("News from the street") },
+            text = { androidx.compose.material3.Text(vm.notices.joinToString("\n\n")) },
+            confirmButton = { androidx.compose.material3.TextButton(onClick = vm::dismissNotices) { androidx.compose.material3.Text("OK") } },
+        )
+    }
     when (val screen = vm.screen) {
         Screen.Street -> StreetScreen(vm, world)
         Screen.ShopEditor -> ShopEditorScreen(vm, world)

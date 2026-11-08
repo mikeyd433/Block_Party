@@ -196,6 +196,13 @@ class ScreenshotTest {
         assertEquals(3, vm.world!!.sprite("starter-display")!!.displaySpots.size)
         vm.autoFillStock(table.id)
         assertEquals(3, vm.homeLot!!.furniture.first { it.id == table.id }.stock.size)
+        // New products start empty: buy stock from the supplier (2 spots of cake, 1 of jam).
+        assertEquals(0, vm.homeLot!!.business!!.offerings.first { it.name == "Cake" }.stock)
+        val (units, cost) = vm.restockAllNeed()
+        assertEquals(15, units)
+        vm.restockAll()
+        assertEquals(10, vm.homeLot!!.business!!.offerings.first { it.name == "Cake" }.stock)
+        assertEquals(100L - cost, vm.world!!.coins)
 
         compose.mainClock.autoAdvance = false
         compose.setContent { BlockPartyTheme { BlockPartyApp(vm) } }
@@ -214,7 +221,7 @@ class ScreenshotTest {
         snapshot("07_starter_interior")
 
         // Keep the shop open until it has earned money and been reviewed.
-        val startCoins = 100L
+        val startCoins = vm.world!!.coins
         for (i in 0 until 1200) {
             val w = vm.world!!
             if (w.coins > startCoins && w.lot(WorldFactory.HOME_LOT_ID)!!.business!!.reviews.isNotEmpty()) break
@@ -222,7 +229,11 @@ class ScreenshotTest {
         }
         val business = vm.world!!.lot(WorldFactory.HOME_LOT_ID)!!.business!!
         assertTrue("earned coins", vm.world!!.coins > startCoins)
-        assertEquals(vm.world!!.coins - startCoins, business.revenueTotal)
+        val supplies = vm.world!!.economy.books.sumOf { it.supplies } - cost // services use supplies too
+        assertEquals(vm.world!!.coins - startCoins + supplies, business.revenueTotal)
+        val stockLeft = business.offerings.filter { it.kind == OfferingKind.PRODUCT }.sumOf { it.stock }
+        val productsSold = 15 - stockLeft
+        assertTrue("stock goes down as products sell", productsSold >= 0)
         assertTrue(business.customersServed > 0 && business.itemsSold > 0)
         assertTrue("reviewed", business.reviews.isNotEmpty() && business.rating != null)
         snapshot("07b_after_sales")

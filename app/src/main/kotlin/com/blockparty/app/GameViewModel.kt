@@ -19,6 +19,7 @@ import com.blockparty.core.npc.CrowdEvent
 import com.blockparty.core.model.DisplaySpot
 import com.blockparty.core.model.FurnitureType
 import com.blockparty.core.sim.DisplayStock
+import com.blockparty.core.sim.Economy
 import com.blockparty.core.model.CharacterRole
 import com.blockparty.core.npc.NpcGenerator
 import com.blockparty.core.npc.StreetCrowd
@@ -85,6 +86,11 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
             sprites.images.putAll(decoded)
             ensureStarterSet()
             fixFloatingBoxes()
+            // Bills are settled at local midnight; check now and then for the day changing.
+            while (true) {
+                settleEconomy()
+                kotlinx.coroutines.delay(30_000)
+            }
         }
         viewModelScope.launch(Dispatchers.IO) {
             saveRequests.consumeAsFlow().collect { repository.save(it) }
@@ -92,6 +98,57 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     val homeLot: Lot? get() = world?.lot(WorldFactory.HOME_LOT_ID)
+
+    /** Messages to show the player (bills while away, debt warnings, closures). */
+    var notices by mutableStateOf<List<String>>(emptyList())
+        private set
+
+    fun dismissNotices() {
+        notices = emptyList()
+    }
+
+    /** Today in the street's timezone, as days since 1970-01-01. */
+    fun today(): Long {
+        val zoneId = world?.street?.timeZoneId?.takeIf { it.isNotBlank() }
+        val zone = zoneId?.let { runCatching { java.time.ZoneId.of(it) }.getOrNull() } ?: java.time.ZoneId.systemDefault()
+        return java.time.LocalDate.now(zone).toEpochDay()
+    }
+
+    /** Charges rent and wages for any days that have passed. */
+    fun settleEconomy() {
+        val current = world ?: return
+        val result = Economy.settle(current, today())
+        if (result.world != current) update { result.world }
+        if (result.notices.isNotEmpty()) notices = notices + result.notices
+    }
+
+    /** Fills a product back up to its shelf capacity, paying the supplier. */
+    fun restock(offeringId: String) {
+        val w = world ?: return
+        val lot = homeLot ?: return
+        val offering = lot.business?.offerings?.firstOrNull { it.id == offeringId } ?: return
+        val (units, cost) = Economy.restockNeed(offering, lot, w::sprite)
+        if (units <= 0) return
+        update { world ->
+            Economy.spendOnSupplies(world, today(), cost).updateLot(lot.id) { l ->
+                l.copy(business = l.business?.let { b ->
+                    b.copy(offerings = b.offerings.map { if (it.id == offeringId) it.copy(stock = it.stock + units) else it })
+                })
+            }
+        }
+    }
+
+    fun restockAll() {
+        homeLot?.business?.offerings?.filter { it.kind == OfferingKind.PRODUCT }?.forEach { restock(it.id) }
+    }
+
+    /** Total units and coins to restock every product. */
+    fun restockAllNeed(): Pair<Int, Long> {
+        val w = world ?: return 0 to 0L
+        val lot = homeLot ?: return 0 to 0L
+        return lot.business?.offerings.orEmpty().map { Economy.restockNeed(it, lot, w::sprite) }
+            .fold(0 to 0L) { acc, (u, c) -> acc.first + u to acc.second + c }
+    }
 
     /** Adds the default starter sprites (and starter customers) the first time a world loads. */
     private suspend fun ensureStarterSet() {
@@ -182,14 +239,27 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
             var out = w
             for (e in events) {
                 out = when (e) {
-                    is CrowdEvent.Sale -> out.copy(coins = out.coins + e.total).updateLot(e.lotId) { lot ->
-                        lot.copy(business = lot.business?.let { b ->
-                            b.copy(
-                                revenueTotal = b.revenueTotal + e.total,
-                                customersServed = b.customersServed + 1,
-                                itemsSold = b.itemsSold + e.items.size,
-                            )
-                        })
+                    is CrowdEvent.Sale -> {
+                        val day = today()
+                        // Services use up supplies each time they're performed.
+                        val serviceSupplies = e.items.filter { it.kind == OfferingKind.SERVICE }.sumOf { item ->
+                            out.lot(e.lotId)?.business?.offerings?.firstOrNull { it.id == item.id }?.supplyTier?.serviceCost ?: 0L
+                        }
+                        val sold = e.items.groupingBy { it.id }.eachCount()
+                        val booked = Economy.book(out.copy(coins = out.coins + e.total), day) { it.copy(sales = it.sales + e.total) }
+                        Economy.spendOnSupplies(booked, day, serviceSupplies).updateLot(e.lotId) { lot ->
+                            lot.copy(business = lot.business?.let { b ->
+                                b.copy(
+                                    revenueTotal = b.revenueTotal + e.total,
+                                    customersServed = b.customersServed + 1,
+                                    itemsSold = b.itemsSold + e.items.size,
+                                    offerings = b.offerings.map { o ->
+                                        val n = sold[o.id] ?: 0
+                                        if (n > 0 && o.kind == OfferingKind.PRODUCT) o.copy(stock = (o.stock - n).coerceAtLeast(0)) else o
+                                    },
+                                )
+                            })
+                        }
                     }
                     is CrowdEvent.Review -> out.updateLot(e.lotId) { lot ->
                         lot.copy(business = lot.business?.let { b ->
@@ -216,7 +286,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     // --- Offerings ----------------------------------------------------------------------------
 
     fun startOffering(kind: OfferingKind) {
-        offeringDraft = Offering(id = newId(), kind = kind, name = "", priceCoins = 10)
+        offeringDraft = Offering(id = newId(), kind = kind, name = "", priceCoins = 10, stock = 0)
         navigate(Screen.OfferingEditor)
     }
 

@@ -131,6 +131,7 @@ class Pedestrian internal constructor(
     internal var waited = 0f
     internal var queued = false
     internal var reviewed = false
+    internal var foundEmpty = false
     internal val spent: Long get() = cart.sumOf { it.price } + (if (gotService) chosenService?.price ?: 0L else 0L)
     internal val remainingBudget: Long get() = profile.budgetCoins - cart.sumOf { it.price } - (chosenService?.price ?: 0L)
     val isWalking: Boolean get() = path.isNotEmpty() && pause <= 0f
@@ -533,6 +534,7 @@ class StreetCrowd(private val random: Random = Random.Default) {
     }
 
     private fun release(p: Pedestrian) {
+        if (!p.paid) p.visiting?.let { unreserve(p, it) }
         standUp(p)
         dequeue(p)
     }
@@ -571,6 +573,7 @@ class StreetCrowd(private val random: Random = Random.Default) {
         p.waited = 0f
         p.queued = false
         p.reviewed = false
+        p.foundEmpty = false
         p.heldItem = null
     }
 
@@ -588,21 +591,41 @@ class StreetCrowd(private val random: Random = Random.Default) {
             else -> emptyList()
         }.distinctBy { it.id }.shuffled(random)
         for (item in candidates) {
+            if (available(door, item) <= 0) {
+                if (CustomerBrain.tagAffinity(p.profile, item.tags + catalog.shopTags) > 0f) p.foundEmpty = true
+                continue
+            }
             if (item.price > p.remainingBudget) {
                 if (CustomerBrain.tagAffinity(p.profile, item.tags + catalog.shopTags) > 0f) p.tooPricey += item
                 continue
             }
             if (random.nextFloat() < CustomerBrain.buyChance(p.profile, item, catalog, p.remainingBudget)) {
                 p.cart += item
+                reserved[door.lotId + "/" + item.id] = (reserved[door.lotId + "/" + item.id] ?: 0) + 1
                 p.heldItem = item.id // carry it around the shop
                 return
             }
         }
     }
 
+    /** Units customers have picked up but not paid for yet (so two can't take the last one). */
+    private val reserved = HashMap<String, Int>()
+
+    private fun available(door: ShopDoor, item: CatalogItem): Int =
+        if (item.stock == Int.MAX_VALUE) Int.MAX_VALUE else item.stock - (reserved[door.lotId + "/" + item.id] ?: 0)
+
+    private fun unreserve(p: Pedestrian, door: ShopDoor) {
+        for (item in p.cart) {
+            val k = door.lotId + "/" + item.id
+            val left = (reserved[k] ?: 0) - 1
+            if (left <= 0) reserved.remove(k) else reserved[k] = left
+        }
+    }
+
     private fun pay(p: Pedestrian, door: ShopDoor) {
         if (p.paid || p.cart.isEmpty()) return
         p.paid = true
+        unreserve(p, door)
         events += CrowdEvent.Sale(door.lotId, p.profile, p.cart.toList(), p.cart.sumOf { it.price }, p.position)
     }
 
@@ -610,9 +633,12 @@ class StreetCrowd(private val random: Random = Random.Default) {
         val catalog = door.catalog ?: return
         if (p.reviewed) return
         p.reviewed = true
+        val got = p.cart + listOfNotNull(p.chosenService?.takeIf { p.gotService })
         val report = VisitReport(
             profile = p.profile, catalog = catalog, bought = p.cart.toList(), tooPricey = p.tooPricey.distinctBy { it.id },
             waitedSec = p.waited, queued = p.queued, gotService = p.gotService,
+            quality = if (got.isEmpty()) 0f else got.map { it.quality }.average().toFloat(),
+            foundEmpty = p.foundEmpty,
         )
         // Unhappy customers are a little more likely to speak up.
         val stars = ReviewWriter.stars(report)
