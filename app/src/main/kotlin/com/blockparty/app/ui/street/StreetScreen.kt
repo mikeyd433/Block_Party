@@ -27,7 +27,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.Inventory2
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.Storefront
@@ -81,6 +81,11 @@ import com.blockparty.core.model.NpcProfile
 import com.blockparty.core.npc.NpcPool
 import com.blockparty.core.npc.ShopAppeal
 import com.blockparty.core.npc.ShopDoor
+import com.blockparty.core.npc.Fixture
+import com.blockparty.core.npc.Fixtures
+import com.blockparty.core.model.FurnitureType
+import com.blockparty.core.model.Lot
+import com.blockparty.core.model.OfferingKind
 import kotlin.random.Random
 import com.blockparty.core.model.SpriteAsset
 import com.blockparty.core.model.SpriteKind
@@ -125,9 +130,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
     // Customers: who can appear, and which shops they might walk into.
     val crowd = vm.crowd
     val candidates = remember(world.npcs, world.sprites) { NpcPool.weighted(world) }
-    val doors = remember(homeLot, freeTiles) {
-        listOf(ShopDoor(homeLot.id, homeLot.rect, freeTiles) { ShopAppeal.visitChance(it, homeLot.business) })
-    }
+    val doors = remember(homeLot, freeTiles, world.sprites) { listOf(shopDoor(world, homeLot, freeTiles)) }
     val pick: (Random) -> NpcProfile? = { r -> NpcPool.choose(candidates, r) }
     val latestDoors by rememberUpdatedState(doors)
     val latestPick by rememberUpdatedState(pick)
@@ -351,8 +354,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
                             Icon(Icons.Default.OpenWith, null); Spacer(Modifier.width(4.dp)); Text("Move")
                         }
                         TextButton(onClick = { vm.navigate(Screen.DisplayEditor(selectedPiece.id)) }) {
-                            Icon(Icons.Default.Inventory2, null); Spacer(Modifier.width(4.dp))
-                            Text(if (sprite?.displaySpots.isNullOrEmpty()) "Display" else "Display (${sprite!!.displaySpots.size})")
+                            Icon(Icons.Default.Tune, null); Spacer(Modifier.width(4.dp)); Text("Setup")
                         }
                         if (sprite != null) {
                             TextButton(onClick = {
@@ -432,6 +434,32 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
     }
 }
 
+/** The shop as customers see it: where they can walk, what furniture they use, what it sells. */
+private fun shopDoor(world: WorldState, lot: Lot, free: Set<Pair<Int, Int>>): ShopDoor {
+    val entry = (lot.rect.x + lot.rect.w / 2) to (lot.rect.bottom - 1)
+    val fixtures = ArrayList<Fixture>()
+    val browseSpots = ArrayList<Pair<Int, Int>>()
+    for (piece in lot.furniture) {
+        val sprite = world.sprite(piece.spriteId) ?: continue
+        val rect = Placement.footprint(sprite, piece.x, piece.y, piece.flipped)
+        val access by lazy { Fixtures.accessTile(rect, free, entry) }
+        if (sprite.furnitureType != FurnitureType.DECOR) fixtures += Fixture(piece.id, sprite.furnitureType, rect, access)
+        if (sprite.displaySpots.isNotEmpty()) access?.let { browseSpots += it }
+    }
+    val business = lot.business
+    val services = business?.offerings.orEmpty().any { it.kind == OfferingKind.SERVICE }
+    return ShopDoor(
+        lotId = lot.id,
+        lot = lot.rect,
+        freeTiles = free,
+        visitChance = { ShopAppeal.visitChance(it, business) },
+        fixtures = fixtures,
+        offersServices = services,
+        servicesOnly = services && business?.offerings.orEmpty().none { it.kind == OfferingKind.PRODUCT },
+        browseSpots = browseSpots,
+    )
+}
+
 private const val MIN_ZOOM = 0.15f
 private const val MAX_ZOOM = 4f
 
@@ -483,6 +511,13 @@ private fun SelectionCard(
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(title ?: sprite?.name?.ifBlank { null } ?: "Untitled", style = MaterialTheme.typography.titleSmall)
+                    if (sprite != null && sprite.kind == SpriteKind.FURNITURE) {
+                        val parts = listOfNotNull(
+                            sprite.furnitureType.label,
+                            sprite.displaySpots.size.takeIf { it > 0 }?.let { "displays $it" },
+                        )
+                        Text(parts.joinToString(" · "), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    }
                     Text(
                         creditLine(sprite),
                         style = MaterialTheme.typography.bodySmall,

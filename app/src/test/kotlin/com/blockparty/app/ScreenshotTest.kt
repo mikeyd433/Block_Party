@@ -13,6 +13,8 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import com.blockparty.app.data.StarterSet
 import com.blockparty.core.model.CharacterRole
 import com.blockparty.core.model.OfferingKind
+import com.blockparty.core.model.FurnitureType
+import com.blockparty.core.model.TagLibrary
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import com.blockparty.app.ui.BlockPartyApp
@@ -158,6 +160,7 @@ class ScreenshotTest {
             Triple("starter-lamp", lot.x + 5, lot.y),
             Triple("starter-stool", lot.x + 3, lot.y + 4),
             Triple("starter-display", lot.x + 1, lot.y + 3),
+            Triple("starter-salon-chair", lot.x + 5, lot.y + 3),
         )) {
             vm.startPlacing(id)
             assertNotNull(id, vm.placeFurniture(x, y))
@@ -174,6 +177,15 @@ class ScreenshotTest {
             vm.updateDraft { it.copy(name = name, spriteId = sprite) }
             vm.saveDraft()
         }
+        vm.setBusinessMode(com.blockparty.core.model.BusinessMode.BOTH)
+        // Every starter tag, so passers-by are likely to come in and the test doesn't rely on luck.
+        TagLibrary.byCategory(0).values.flatten().forEach { vm.toggleBusinessTag(it.id) }
+        vm.startOffering(OfferingKind.SERVICE)
+        vm.updateDraft { it.copy(name = "Haircut") }
+        vm.saveDraft()
+        assertEquals(FurnitureType.CHECKOUT, vm.world!!.sprite("starter-counter")!!.furnitureType)
+        assertEquals(FurnitureType.SEATING, vm.world!!.sprite("starter-stool")!!.furnitureType)
+        assertEquals(FurnitureType.SERVICE_STATION, vm.world!!.sprite("starter-salon-chair")!!.furnitureType)
         val table = vm.homeLot!!.furniture.first { it.spriteId == "starter-display" }
         assertEquals(3, vm.world!!.sprite("starter-display")!!.displaySpots.size)
         vm.autoFillStock(table.id)
@@ -184,12 +196,24 @@ class ScreenshotTest {
         advance(500)
         snapshot("06_starter_street")
         compose.onNodeWithText("Go inside").performClick()
-        advance(1500)
+        // Run the shop for a while and catch someone sitting.
+        var sawSeated = false
+        for (i in 0 until 400) {
+            advance(250)
+            if (vm.crowd.people.any { it.seatedOn != null && it.insideLotId != null }) { sawSeated = true; break }
+        }
+        assertTrue("someone sat on the stool or salon chair", sawSeated)
         snapshot("07_starter_interior")
         compose.runOnIdle { vm.navigate(Screen.DisplayEditor(table.id)) }
         advance(500)
         compose.onNodeWithText("On display").assertExists()
         snapshot("08_display_editor")
+        compose.runOnIdle { vm.back() }
+        val chair = vm.homeLot!!.furniture.first { it.spriteId == "starter-salon-chair" }
+        compose.runOnIdle { vm.navigate(Screen.DisplayEditor(chair.id)) }
+        advance(500)
+        compose.onNodeWithText("Seat height").assertExists()
+        snapshot("09_seat_setup")
     }
 
     @Test

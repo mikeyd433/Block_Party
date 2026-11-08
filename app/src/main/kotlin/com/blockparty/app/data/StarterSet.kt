@@ -11,6 +11,7 @@ import com.blockparty.core.geometry.IsoProjection
 import com.blockparty.core.geometry.Storefront
 import com.blockparty.core.model.CharacterRole
 import com.blockparty.core.model.DisplaySpot
+import com.blockparty.core.model.FurnitureType
 import com.blockparty.core.model.SpriteAsset
 import com.blockparty.core.model.SpriteKind
 import kotlin.math.roundToInt
@@ -23,7 +24,7 @@ import kotlin.random.Random
  */
 object StarterSet {
     /** Bump when the set changes; worlds with an older version get the new pieces added. */
-    const val VERSION = 2
+    const val VERSION = 3
     const val ARTIST = "Starter set"
 
     class Item(val asset: SpriteAsset, val bitmap: Bitmap)
@@ -52,11 +53,20 @@ object StarterSet {
         for (p in customers) add(asset(p.id, SpriteKind.CHARACTER, p.name, person(p)) { copy(role = CharacterRole.CUSTOMER) })
 
         // Furniture.
-        add(turned("counter", "Counter", counterFront(), depth = 0.45f, footprint = 2 to 1))
+        add(turned("counter", "Counter", counterFront(), depth = 0.45f, footprint = 2 to 1).let {
+            Item(it.asset.copy(furnitureType = FurnitureType.CHECKOUT), it.bitmap)
+        })
         add(turned("bookshelf", "Bookshelf", shelfFront(), depth = 0.3f, footprint = 2 to 1))
         add(asset("plant", SpriteKind.FURNITURE, "Potted plant", plant()) { copy(alignToGrid = false) })
         add(asset("lamp", SpriteKind.FURNITURE, "Floor lamp", lamp()) { copy(alignToGrid = false) })
-        add(asset("stool", SpriteKind.FURNITURE, "Stool", stool()) { copy(alignToGrid = true) })
+        // Cushion top is at y = 65 of 300.
+        add(asset("stool", SpriteKind.FURNITURE, "Stool", stool()) {
+            copy(alignToGrid = true, furnitureType = FurnitureType.SEATING, seatHeight = 1f - 65f / 300f)
+        })
+        // Seat cushion top is at y = 236 of 420.
+        add(asset("salon-chair", SpriteKind.FURNITURE, "Salon chair", salonChair()) {
+            copy(alignToGrid = false, furnitureType = FurnitureType.SERVICE_STATION, seatHeight = 1f - 236f / 420f)
+        })
         add(asset("display", SpriteKind.FURNITURE, "Display table", displayTable()) {
             // Three spots along the table top (y = 110 of 300 in the drawing).
             copy(
@@ -275,6 +285,20 @@ object StarterSet {
         wobbleLine(60f, 200f, 200f, 200f, wood, 3)
         drawRoundRect(RectF(30f, 60f, 230f, 100f), 16f, 16f, fill(0xFFD9443A))
         drawRoundRect(RectF(30f, 60f, 230f, 100f), 16f, 16f, ink)
+    }
+
+    private fun salonChair() = bitmap(300, 420) {
+        // Base and pole.
+        drawOval(RectF(70f, 392f, 230f, 416f), fill(0xFF6B6459))
+        wobbleLine(150f, 300f, 150f, 400f, pen(0xFF2E2B26, 16f), 1)
+        // Back rest (chair faces right).
+        drawRoundRect(RectF(40f, 70f, 110f, 280f), 26f, 26f, fill(0xFF9B6FD1))
+        drawRoundRect(RectF(40f, 70f, 110f, 280f), 26f, 26f, ink)
+        // Seat cushion and arm rest.
+        drawRoundRect(RectF(50f, 236f, 260f, 296f), 22f, 22f, fill(0xFF9B6FD1))
+        drawRoundRect(RectF(50f, 236f, 260f, 296f), 22f, 22f, ink)
+        wobbleLine(110f, 200f, 240f, 200f, pen(0xFF2E2B26, 12f), 2)
+        wobbleLine(240f, 200f, 240f, 236f, pen(0xFF2E2B26, 12f), 3)
     }
 
     private fun displayTable() = bitmap(520, 300) {

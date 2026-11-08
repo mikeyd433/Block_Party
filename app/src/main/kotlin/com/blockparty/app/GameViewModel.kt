@@ -15,6 +15,7 @@ import com.blockparty.core.art.ImageOps
 import com.blockparty.app.data.StarterSet
 import com.blockparty.core.model.Business
 import com.blockparty.core.model.DisplaySpot
+import com.blockparty.core.model.FurnitureType
 import com.blockparty.core.sim.DisplayStock
 import com.blockparty.core.model.CharacterRole
 import com.blockparty.core.npc.NpcGenerator
@@ -98,9 +99,9 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         val items = withContext(Dispatchers.Default) { StarterSet.generate(lotWidth) }
         val existing = current.sprites.map { it.id }.toSet()
         val added = items.filter { it.asset.id !in existing }
-        // Newer starter versions can add display spots to pieces this world already has.
-        val newSpots = items.filter { it.asset.id in existing && it.asset.displaySpots.isNotEmpty() }
-            .associate { it.asset.id to it.asset.displaySpots }
+        // Newer starter versions can set up pieces this world already has (display spots,
+        // furniture type, seat height), without overriding anything the player changed.
+        val newSetup = items.filter { it.asset.id in existing }.associate { it.asset.id to it.asset }
         withContext(Dispatchers.IO) { added.forEach { sprites.writeFile(it.asset.id, it.bitmap) } }
         added.forEach { sprites.images[it.asset.id] = it.bitmap.asImageBitmap() }
         update { w ->
@@ -110,7 +111,13 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
                 .filter { it.role == CharacterRole.CUSTOMER && it.id !in npcIds }
                 .map { NpcGenerator.profile("npc-${it.id}", it.id, w.playerLevel) }
             val upgraded = w.sprites.map { s ->
-                newSpots[s.id]?.takeIf { s.displaySpots.isEmpty() }?.let { s.copy(displaySpots = it) } ?: s
+                val fresh = newSetup[s.id] ?: return@map s
+                var out = s
+                if (s.displaySpots.isEmpty() && fresh.displaySpots.isNotEmpty()) out = out.copy(displaySpots = fresh.displaySpots)
+                if (s.furnitureType == FurnitureType.DECOR && fresh.furnitureType != FurnitureType.DECOR) {
+                    out = out.copy(furnitureType = fresh.furnitureType, seatHeight = fresh.seatHeight)
+                }
+                out
             }
             w.copy(sprites = upgraded + newSprites, npcs = w.npcs + newNpcs, starterSetVersion = StarterSet.VERSION)
         }
@@ -319,6 +326,14 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     /** Replaces a furniture drawing's display spots (shared by every placed copy). */
     fun setDisplaySpots(spriteId: String, spots: List<DisplaySpot>) = update { w ->
         w.copy(sprites = w.sprites.map { if (it.id == spriteId) it.copy(displaySpots = spots) else it })
+    }
+
+    fun setFurnitureType(spriteId: String, type: FurnitureType) = update { w ->
+        w.copy(sprites = w.sprites.map { if (it.id == spriteId) it.copy(furnitureType = type) else it })
+    }
+
+    fun setSeatHeight(spriteId: String, height: Float) = update { w ->
+        w.copy(sprites = w.sprites.map { if (it.id == spriteId) it.copy(seatHeight = height) else it })
     }
 
     /** Puts a product on a spot of one placed piece, or empties the spot (null). */

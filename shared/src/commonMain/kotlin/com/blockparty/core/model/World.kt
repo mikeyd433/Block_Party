@@ -40,6 +40,13 @@ data class SpriteAsset(
     val groundY: Float = 1f,
     /** Furniture only: where products can sit. Non-empty makes this a display piece. */
     val displaySpots: List<DisplaySpot> = emptyList(),
+    /** Furniture only: what customers use it for. */
+    val furnitureType: FurnitureType = FurnitureType.DECOR,
+    /**
+     * Seating and service stations: where a customer sits, as a fraction of the drawing's
+     * height above the point that rests on the floor.
+     */
+    val seatHeight: Float = DEFAULT_SEAT_HEIGHT,
     /** Characters only: what the character is for. */
     val role: CharacterRole = CharacterRole.NONE,
     /** Part of the default starter set that ships with the game, not drawn by a player. */
@@ -49,6 +56,20 @@ data class SpriteAsset(
     val showCredit: Boolean = true,
     val createdAtMillis: Long = 0L,
 )
+
+/** What customers use a piece of furniture for. Display spots can be added to any type. */
+@Serializable
+enum class FurnitureType(val label: String, val description: String) {
+    DECOR("Decor", "Just looks nice."),
+    CHECKOUT("Checkout", "Customers queue and pay here before leaving."),
+    SERVICE_STATION("Service station", "Customers sit here to be served. More stations serve more people at once."),
+    SEATING("Seating", "Customers sit here while they wait in a queue or take a break."),
+    ;
+
+    val hasSeat: Boolean get() = this == SERVICE_STATION || this == SEATING
+}
+
+const val DEFAULT_SEAT_HEIGHT = 0.45f
 
 @Serializable
 enum class CharacterRole { NONE, SHOPKEEPER, CUSTOMER, EMPLOYEE }

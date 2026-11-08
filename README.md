@@ -37,6 +37,11 @@ walking the street and a default starter set.
   number of spots is how many items it holds. Each placed copy picks which product sits on each
   spot (or fills them automatically), and the products stand on the furniture in the shop,
   moving with it.
+- **Furniture types**: in a placed piece's **Setup**, pick Decor, Checkout, Service station or
+  Seating (display spots can be added to any type). Customers use them: browsers head for display
+  pieces, queue and pay at a checkout, queue to be served on service stations (if the shop sells
+  services), and sit on free seats while waiting or resting. Seat height is adjustable with a
+  live preview, and seated customers are drawn in the seat with their legs hidden.
 - **Drawn customers** (stage 2): draw a customer and they join the street's NPC pool. The game
   gives them a name, liked tags and a budget (players never choose these). Customers walk the
   sidewalks, and some step into your shop, browse between free tiles and leave. Tap one to see

@@ -52,7 +52,7 @@ class NpcTest {
         val street = w.street
         val lot = w.lot(WorldFactory.HOME_LOT_ID)!!.rect
         val free = buildSet { for (x in lot.x until lot.right) for (y in lot.y until lot.bottom) if (y != 2) add(x to y) }
-        val door = ShopDoor(WorldFactory.HOME_LOT_ID, lot, free) { 0.6f }
+        val door = ShopDoor(WorldFactory.HOME_LOT_ID, lot, free, visitChance = { 0.6f })
         val crowd = StreetCrowd(Random(7))
         val pick: (Random) -> NpcProfile? = { r -> NpcPool.choose(w, r) }
         val near = StreetCrowd.nearLaneY(street)

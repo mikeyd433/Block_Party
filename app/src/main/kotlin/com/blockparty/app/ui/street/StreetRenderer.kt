@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
@@ -100,6 +101,8 @@ class CutoutItem(
     val anchorY: Float = 1f,
     /** Products standing on a display piece, drawn right after it. */
     val displayed: List<DisplayedItem> = emptyList(),
+    /** For someone sitting: only the part above this screen y is drawn (legs hidden by the seat). */
+    val clipBottom: Float? = null,
 ) {
     /** Screen area covered before animation, for hit testing. */
     val bounds: Rect
@@ -161,7 +164,12 @@ fun StreetScene.interiorCutouts(): List<CutoutItem> {
             shadow = ovalShadow(foot, w * 0.8f),
         )
     }
-    crowd.filter { it.insideLotId == lot.id }.mapNotNullTo(items) { pedestrianItem(it) }
+    val furnitureById = items.associateBy { it.id }
+    for (p in crowd.filter { it.insideLotId == lot.id }) {
+        val seat = p.seatedOn?.let { furnitureById[it] }
+        val item = if (seat != null) seatedItem(p, seat, lot) else pedestrianItem(p)
+        item?.let(items::add)
+    }
     items.sortBy { it.depth }
     return items
 }
@@ -243,6 +251,33 @@ fun StreetScene.pedestrianItem(p: Pedestrian): CutoutItem? {
         mirrored = p.facingRight != sprite.facesRight,
         depth = p.position.x + p.position.y,
         shadow = ovalShadow(foot, w * 0.8f),
+    )
+}
+
+/** Part of a seated character's height hidden below the seat. */
+private const val SEATED_HIDDEN = 0.32f
+
+/**
+ * Someone sitting on a seat or service station: drawn at the furniture's seat height, just in
+ * front of it, with the bottom of the drawing (legs) hidden so they look seated.
+ */
+private fun StreetScene.seatedItem(p: Pedestrian, seat: CutoutItem, lot: Lot): CutoutItem? {
+    val base = pedestrianItem(p) ?: return null
+    val seatSprite = lot.furniture.firstOrNull { it.id == seat.id }?.let { world.sprite(it.spriteId) } ?: return base
+    val ground = seat.panel?.foot?.toOffset() ?: seat.foot
+    val height = seat.panel?.let { it.corners[3].y - it.corners[0].y } ?: seat.size.height
+    val seatY = ground.y - seatSprite.seatHeight * height - seat.pose.lift * height
+    val foot = Offset(ground.x, seatY + base.size.height * SEATED_HIDDEN)
+    return CutoutItem(
+        id = base.id,
+        image = base.image,
+        foot = foot,
+        size = base.size,
+        pose = ProceduralAnimator.idle(timeSec, seed = p.id * 1.3f) + effectPose(base.id),
+        mirrored = base.mirrored,
+        depth = seat.depth + 0.01f,
+        shadow = {},
+        clipBottom = seatY,
     )
 }
 
@@ -426,7 +461,11 @@ private fun DrawScope.drawInterior(scene: StreetScene, lot: Lot) {
     for (item in scene.interiorCutouts()) {
         val panel = item.panel
         if (panel != null) drawPanelCutout(item.image, panel, item.pose, item.shadow)
-        else drawCutout(
+        else if (item.clipBottom != null) {
+            clipRect(left = -1e6f, top = -1e6f, right = 1e6f, bottom = item.clipBottom) {
+                drawCutout(item.image, item.foot, item.size, item.pose, item.mirrored, null)
+            }
+        } else drawCutout(
             item.image, item.foot, item.size, item.pose, item.mirrored, item.shadow,
             anchorX = item.anchorX, anchorY = item.anchorY,
         )
