@@ -38,6 +38,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -348,8 +349,22 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
             rating = currentLot.business?.rating,
             debtDaysLeft = Economy.graceDaysLeft(world, vm.today()),
             onClick = { showStats = true },
-            modifier = Modifier.align(Alignment.TopCenter),
+            // Leaves room for the Streets button in the corner.
+            modifier = Modifier.align(Alignment.TopCenter).padding(horizontal = if (interior) 0.dp else 52.dp),
         )
+
+        if (!interior) {
+            FilledTonalIconButton(
+                onClick = { vm.navigate(Screen.Streets) },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(start = 12.dp, top = 18.dp)
+                    .size(44.dp),
+            ) {
+                Icon(Icons.Default.Public, "Streets")
+            }
+        }
 
         Column(
             Modifier

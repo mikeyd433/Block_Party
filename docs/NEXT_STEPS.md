@@ -25,12 +25,22 @@ Keep in mind: database/storage/bandwidth limits and free-plan pausing are shared
 
 ## Remaining build work
 
-1. **Stage 5 (app side):** sign-in (email + password), streets list (the local single-player
-   street plus shared ones), create street (admin, invite code), join by code or invite link,
-   and syncing: own lots, player state and drawings up; other players' lots and drawings
-   down; realtime updates. Each street gets its own local `WorldState` file. The groundwork
-   is already in the app: lot ownership (`Lot.ownerId`, `WorldState.myUserId`, `isMine`),
-   offline catch-up, and per-device sales for your own shops only.
+1. **Stage 5 (app side).** Done: sign-in and new accounts (email + password), the Streets
+   screen (the local single-player street plus shared ones), create street (admin, invite
+   code with share/copy, new code), join by code, members list, leave. The client is a small
+   hand-written Supabase client in `shared/core/net` (supabase-kt needs Kotlin 2.3+, and the
+   project is on 2.2). Still to do:
+   - **Open a shared street to play.** Each street gets its own local `WorldState` file
+     (`world-<streetId>.json`), with `myUserId` set and lots seeded from `block_party.lots`.
+   - **Syncing:** own lots (via `claim_lot` / `close_lot` / `merge_lots` and updates to
+     business/furniture), player state and drawings (the `block-party-drawings` bucket) up;
+     other players' lots and drawings down; realtime updates (needs a websocket client, or
+     supabase-kt after a Kotlin upgrade). The groundwork is already in the app: lot ownership
+     (`Lot.ownerId`, `WorldState.myUserId`, `isMine`), offline catch-up, and per-device sales
+     for your own shops only.
+   - **Invite links** (a deep link that opens Join with the code filled in).
+   - If the project requires email confirmation, the confirmation link goes to the project's
+     Site URL (set for Not A Book Club). The app tells players to confirm and then sign in.
 2. **Stages 8–9:** street chat, notes at shop doors, gifting, loans, buying shops from each
    other, shared promos; player XP, business reputation, street level and unlocks (locked
    lots, new tags, catalog furniture); events (weekly, votes, random, player-hosted),

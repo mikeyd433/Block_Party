@@ -9,6 +9,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.blockparty.app.GameViewModel
+import com.blockparty.app.OnlineViewModel
 import com.blockparty.app.Screen
 import com.blockparty.app.ui.draw.DrawingScreen
 import com.blockparty.app.ui.shop.DisplayEditorScreen
@@ -17,7 +18,7 @@ import com.blockparty.app.ui.shop.ShopEditorScreen
 import com.blockparty.app.ui.street.StreetScreen
 
 @Composable
-fun BlockPartyApp(vm: GameViewModel = viewModel()) {
+fun BlockPartyApp(vm: GameViewModel = viewModel(), online: OnlineViewModel = viewModel()) {
     val world = vm.world
     if (world == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -41,5 +42,8 @@ fun BlockPartyApp(vm: GameViewModel = viewModel()) {
         is Screen.Draw -> DrawingScreen(vm, world, screen.kind, screen.purpose)
         is Screen.DisplayEditor -> DisplayEditorScreen(vm, world, screen.placementId)
         Screen.JobBoard -> com.blockparty.app.ui.shop.JobBoardScreen(vm, world)
+        Screen.Streets -> com.blockparty.app.ui.online.StreetsScreen(vm, online, world)
+        Screen.SignIn -> com.blockparty.app.ui.online.SignInScreen(vm, online)
+        is Screen.SharedStreet -> com.blockparty.app.ui.online.SharedStreetScreen(vm, online, screen.streetId)
     }
 }

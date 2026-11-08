@@ -56,6 +56,10 @@ sealed interface Screen {
     data object JobBoard : Screen
     /** Display spots of a placed piece's drawing, and what this placed piece shows on them. */
     data class DisplayEditor(val placementId: String) : Screen
+    /** The player's streets: single-player and shared. */
+    data object Streets : Screen
+    data object SignIn : Screen
+    data class SharedStreet(val streetId: String) : Screen
 }
 
 class GameViewModel(app: Application) : AndroidViewModel(app) {

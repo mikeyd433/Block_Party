@@ -126,6 +126,48 @@ class ScreenshotTest {
     }
 
     @Test
+    fun streetsSignInAndSharedStreet() {
+        val vm = newViewModel()
+        val online = OnlineViewModel(ApplicationProvider.getApplicationContext<Application>())
+        online.debugShow(null, emptyList())
+        compose.mainClock.autoAdvance = false // the street animates forever
+        compose.setContent { BlockPartyTheme { BlockPartyApp(vm, online) } }
+        advance(500)
+
+        compose.onNodeWithContentDescription("Streets").performClick()
+        advance(500)
+        compose.onNodeWithText("Sign in or create account").assertExists()
+        snapshot("20_streets_signed_out")
+        // Off the street nothing animates forever, so let the test clock run (dialogs need it).
+        compose.mainClock.autoAdvance = true
+
+        compose.onNodeWithText("Sign in or create account").performClick()
+        advance(500)
+        compose.onNodeWithText("New account").performClick()
+        advance(500)
+        compose.onNodeWithText("Your name").assertExists()
+        snapshot("21_create_account")
+        vm.back()
+
+        val me = com.blockparty.core.net.RemoteMember("u1", "Ann")
+        val elm = com.blockparty.core.net.RemoteStreet("s1", "Elm Street", "AB12CD", adminId = "u1")
+        val oak = com.blockparty.core.net.RemoteStreet("s2", "Oak Lane", "QW34ER", adminId = "u2")
+        online.debugShow(
+            Account("u1", "ann@example.com", "Ann"), listOf(elm, oak),
+            mapOf("s1" to listOf(me, com.blockparty.core.net.RemoteMember("u2", "Bo"))),
+        )
+        advance(500)
+        compose.onNodeWithText("Oak Lane").assertExists()
+        snapshot("22_streets_signed_in")
+
+        compose.onNodeWithText("Elm Street").performClick()
+        advance(500)
+        compose.onNodeWithText("AB12CD").assertExists()
+        compose.onNodeWithText("Bo").assertExists()
+        snapshot("23_shared_street")
+    }
+
+    @Test
     fun starterSetAndDrawnCustomers() {
         val vm = newViewModel()
         val world = vm.world!!

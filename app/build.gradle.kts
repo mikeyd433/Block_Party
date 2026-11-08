@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -14,6 +16,15 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+
+        // The shared Supabase project. The publishable key is public by design (it ships in every
+        // client); row-level security protects the data. Override both in local.properties
+        // (supabase.url / supabase.key) to point a build at another project.
+        val props = Properties().apply {
+            rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+        }
+        buildConfigField("String", "SUPABASE_URL", "\"${props.getProperty("supabase.url", "https://dpflpwoivvpfvainzwgd.supabase.co")}\"")
+        buildConfigField("String", "SUPABASE_KEY", "\"${props.getProperty("supabase.key", "sb_publishable_m6fV3H-wsiL4ckmSJqQoIQ_JopCEQMT")}\"")
     }
 
     buildTypes {
@@ -30,6 +41,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     testOptions {
