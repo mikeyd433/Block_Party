@@ -185,6 +185,9 @@ class StreetCrowd(private val random: Random = Random.Default) {
     private var nextId = 1
     private var spawnTimer = 0.5f
 
+    /** How busy the street is right now (see Traffic): fewer people at night, more at weekends. */
+    var traffic: Float = 1f
+
     /** Queues per fixture (keyed by lot + fixture id), front first. */
     private val queues = LinkedHashMap<String, MutableList<Pedestrian>>()
     /** Seats in use (keyed by lot + fixture id). */
@@ -225,7 +228,7 @@ class StreetCrowd(private val random: Random = Random.Default) {
 
         spawnTimer -= dt
         if (spawnTimer <= 0f) {
-            spawnTimer = SPAWN_MIN_SEC + random.nextFloat() * (SPAWN_MAX_SEC - SPAWN_MIN_SEC)
+            spawnTimer = (SPAWN_MIN_SEC + random.nextFloat() * (SPAWN_MAX_SEC - SPAWN_MIN_SEC)) / traffic.coerceAtLeast(0.1f)
             if (_people.size < MAX_PEOPLE) spawn(street, pick)
         }
         syncStaff(doors)

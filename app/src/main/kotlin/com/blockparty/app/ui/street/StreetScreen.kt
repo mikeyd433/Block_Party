@@ -166,6 +166,7 @@ fun StreetScreen(vm: GameViewModel, world: WorldState) {
             val dt = ((now - last) / 1e9f).coerceIn(0f, 0.1f)
             last = now
             time = (now - start) / 1e9f
+            if ((now / 1_000_000_000L) % 60L == 0L) crowd.traffic = vm.trafficNow()
             crowd.update(dt, world.street, latestDoors, latestPick)
             val events = crowd.drainEvents()
             if (events.isNotEmpty()) {

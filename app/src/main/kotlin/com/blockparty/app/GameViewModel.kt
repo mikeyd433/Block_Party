@@ -22,6 +22,8 @@ import com.blockparty.core.model.DisplaySpot
 import com.blockparty.core.model.FurnitureType
 import com.blockparty.core.sim.DisplayStock
 import com.blockparty.core.sim.Economy
+import com.blockparty.core.sim.OfflineCatchUp
+import com.blockparty.core.sim.Traffic
 import com.blockparty.core.sim.Lots
 import com.blockparty.core.model.LotState
 import com.blockparty.core.model.CharacterRole
@@ -91,9 +93,11 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
             sprites.images.putAll(decoded)
             ensureStarterSet()
             fixFloatingBoxes()
+            catchUp()
             // Bills are settled at local midnight; check now and then for the day changing.
             while (true) {
                 settleEconomy()
+                markActive()
                 kotlinx.coroutines.delay(30_000)
             }
         }
@@ -133,6 +137,44 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         val zoneId = world?.street?.timeZoneId?.takeIf { it.isNotBlank() }
         val zone = zoneId?.let { runCatching { java.time.ZoneId.of(it) }.getOrNull() } ?: java.time.ZoneId.systemDefault()
         return java.time.LocalDate.now(zone).toEpochDay()
+    }
+
+    private fun zone(): java.time.ZoneId {
+        val zoneId = world?.street?.timeZoneId?.takeIf { it.isNotBlank() }
+        return zoneId?.let { runCatching { java.time.ZoneId.of(it) }.getOrNull() } ?: java.time.ZoneId.systemDefault()
+    }
+
+    /** How busy the street is right now. */
+    fun trafficNow(): Float {
+        val now = java.time.ZonedDateTime.now(zone())
+        return Traffic.multiplier(now.hour, now.dayOfWeek.value >= 6)
+    }
+
+    fun markActive() = update { it.copy(lastActiveMillis = System.currentTimeMillis()) }
+
+    /**
+     * Works out what the player's shops did while the app was closed (they keep trading until they
+     * run out of stock) and shows a summary.
+     */
+    fun catchUp() {
+        val w = world ?: return
+        val now = System.currentTimeMillis()
+        val last = w.lastActiveMillis
+        if (last <= 0L) { markActive(); return }
+        val hours = ((now - last) / 3_600_000L).toInt()
+        if (hours < 1) { markActive(); return }
+        val start = java.time.Instant.ofEpochMilli(last).atZone(zone())
+        val hourAt = { h: Int -> start.plusHours(h.toLong()).let { it.hour to (it.dayOfWeek.value >= 6) } }
+        val pool = com.blockparty.core.npc.NpcPool.weighted(w)
+        var out = w
+        val summaries = ArrayList<String>()
+        for (lot in w.street.lots.filter { it.state == LotState.OWNED && it.business != null && it.isMine(w) }) {
+            val (next, summary) = OfflineCatchUp.run(out, lot.id, hours, pool, hourAt, today(), now, kotlin.random.Random(now))
+            out = next
+            summary?.describe(lot.business!!.name)?.let(summaries::add)
+        }
+        update { out.copy(lastActiveMillis = now) }
+        if (summaries.isNotEmpty()) notices = notices + summaries
     }
 
     /** Charges rent and wages for any days that have passed. */
@@ -334,7 +376,10 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
     // --- Player & business identity -----------------------------------------------------------
 
     /** Records sales and reviews from the shops: coins, revenue, customers served and reputation. */
-    fun recordEvents(events: List<CrowdEvent>) {
+    fun recordEvents(all: List<CrowdEvent>) {
+        // Only the player's own shops earn here; other players' devices handle theirs.
+        val w0 = world ?: return
+        val events = all.filter { e -> w0.lot(e.lotId)?.isMine(w0) == true }
         if (events.isEmpty()) return
         update { w ->
             var out = w

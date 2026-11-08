@@ -88,7 +88,7 @@ object Economy {
         var rentTotal = 0L
         var wagesTotal = 0L
         for (day in last + 1..today) {
-            val owned = w.street.lots.filter { it.state == LotState.OWNED && it.business != null }
+            val owned = w.street.lots.filter { it.isMine(w) && it.business != null }
             val rent = owned.sumOf { rentPerDay(it, w.street, streetLevel) }
             val wages = owned.sumOf { wagesPerDay(it.business!!) }
             rentTotal += rent
@@ -107,14 +107,14 @@ object Economy {
                 notices += "You're in debt. Get back above zero within $GRACE_DAYS days or a shop will close."
             } else if (day - debtSince >= GRACE_DAYS) {
                 val closing = w.street.lots
-                    .filter { it.state == LotState.OWNED && it.business != null }
+                    .filter { it.isMine(w) && it.business != null }
                     .maxByOrNull { rentPerDay(it, w.street, streetLevel) + wagesPerDay(it.business!!) }
                 if (closing != null) {
                     notices += "${closing.business!!.name.ifBlank { "Your shop" }} closed after $GRACE_DAYS days in debt. " +
                         "Its furniture is in storage."
                     w = closeBusiness(w, closing.id)
                 }
-                val stillOpen = w.street.lots.any { it.state == LotState.OWNED && it.business != null }
+                val stillOpen = w.street.lots.any { it.isMine(w) && it.business != null }
                 w = if (stillOpen) {
                     w.copy(economy = w.economy.copy(debtSinceDay = day)) // grace starts again for the rest
                 } else {
@@ -138,7 +138,7 @@ object Economy {
         val lot = world.lot(lotId) ?: return world
         val stored = world.storage + lot.furniture.map { it.spriteId }
         return world.copy(storage = stored).updateLot(lotId) {
-            it.copy(state = LotState.VACANT, business = null, furniture = emptyList())
+            it.copy(state = LotState.VACANT, business = null, furniture = emptyList(), ownerId = null, ownerName = "")
         }
     }
 

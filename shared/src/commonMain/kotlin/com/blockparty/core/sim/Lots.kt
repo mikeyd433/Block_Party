@@ -29,7 +29,10 @@ object Lots {
         val cost = price(lot, world, streetLevel)
         if (world.coins < cost) return Result.Failed("You need $cost coins to buy this lot.")
         val bought = world.copy(coins = world.coins - cost).updateLot(lotId) {
-            it.copy(state = LotState.OWNED, business = Business(name = "New Shop"), furniture = emptyList())
+            it.copy(
+                state = LotState.OWNED, business = Business(name = "New Shop"), furniture = emptyList(),
+                ownerId = world.myUserId, ownerName = world.playerName,
+            )
         }
         return Result.Ok(Economy.book(bought, today) { it.copy(property = it.property + cost) })
     }
@@ -45,10 +48,10 @@ object Lots {
     }
 
     /** What expanding into a neighbour would cost (lot price if vacant, 0 if you own it), or null if not possible. */
-    fun mergeCost(world: WorldState, lot: Lot, other: Lot, streetLevel: Int = 0): Long? = when (other.state) {
-        LotState.VACANT -> price(other, world, streetLevel)
-        LotState.OWNED -> 0L
-        LotState.LOCKED -> null
+    fun mergeCost(world: WorldState, lot: Lot, other: Lot, streetLevel: Int = 0): Long? = when {
+        other.state == LotState.VACANT -> price(other, world, streetLevel)
+        other.isMine(world) -> 0L
+        else -> null
     }
 
     /**
@@ -59,7 +62,8 @@ object Lots {
     fun merge(world: WorldState, lotId: String, otherId: String, today: Long, streetLevel: Int = 0): Result {
         val lot = world.lot(lotId) ?: return Result.Failed("That lot doesn't exist.")
         val other = world.lot(otherId) ?: return Result.Failed("That lot doesn't exist.")
-        if (lot.state != LotState.OWNED || lot.business == null) return Result.Failed("You can only expand a shop you own.")
+        if (!lot.isMine(world) || lot.business == null) return Result.Failed("You can only expand a shop you own.")
+        if (other.state == LotState.OWNED && !other.isMine(world)) return Result.Failed("That shop belongs to someone else.")
         val adjacent = neighbour(world, lot, -1)?.id == otherId || neighbour(world, lot, 1)?.id == otherId
         if (!adjacent) return Result.Failed("Lots must be next to each other to merge.")
         val cost = mergeCost(world, lot, other, streetLevel) ?: return Result.Failed("That lot is still locked.")

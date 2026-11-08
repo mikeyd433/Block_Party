@@ -282,7 +282,14 @@ data class Lot(
     val state: LotState,
     val business: Business? = null,
     val furniture: List<FurniturePlacement> = emptyList(),
-)
+    /** Player who owns it on a shared street (null on a single-player street). */
+    val ownerId: String? = null,
+    val ownerName: String = "",
+) {
+    /** True if this is one of the player's own shops. */
+    fun isMine(world: WorldState): Boolean =
+        state == LotState.OWNED && (world.myUserId == null || ownerId == null || ownerId == world.myUserId)
+}
 
 /**
  * Street layout: lots sit in a row with y in [0, lotDepth); in front of them
@@ -318,6 +325,10 @@ data class WorldState(
     /** Version of the default starter set already added to this world. */
     val starterSetVersion: Int = 0,
     val economy: EconomyState = EconomyState(),
+    /** The signed-in player's id on a shared street (null for a single-player street). */
+    val myUserId: String? = null,
+    /** When the player last had the street open (for catching up on what happened while away). */
+    val lastActiveMillis: Long = 0,
     /** Furniture (sprite ids) taken out of closed shops, ready to place again. */
     val storage: List<String> = emptyList(),
 ) {
