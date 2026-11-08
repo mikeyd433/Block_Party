@@ -94,8 +94,9 @@ street, shop by their tastes and budget, pay, and leave reviews, plus running co
   the crowd, and you can visit their shops (look, don't touch). Your shops, drawings, coins and
   books are saved to the street, so they come back on a new phone. Each shared street has its
   own coins and its own local save, so it opens straight away and works offline; changes go up
-  a few seconds after you make them, and other players' changes arrive within about 20 seconds.
-  The top card says "offline" when it can't reach the server.
+  a few seconds after you make them, and other players' changes arrive within a second or two
+  (live updates; every 20 seconds if the live connection is down). The top card says "offline"
+  when it can't reach the server.
 
 There is no LLM or AI-generated content anywhere. All behaviour comes from hand-written systems.
 

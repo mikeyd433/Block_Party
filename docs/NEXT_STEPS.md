@@ -49,9 +49,13 @@ Keep in mind: database/storage/bandwidth limits and free-plan pausing are shared
    - Removed by the admin (or the street is gone): the sync notices, tells the player,
      forgets the local copy and goes back to the single-player street.
    - Join with code fills itself in from a copied invite message or code.
+   - Live updates: `StreetLive` (app, OkHttp websocket) joins a Supabase Realtime channel for
+     the street's `lots`, `sprites` and `members` (`RealtimeProtocol` in shared). Each change
+     wakes the sync, which does its usual incremental pull half a second later; payloads aren't
+     applied directly, so there's one way changes come in. Heartbeat every 25 s, the refreshed
+     access token is passed on, and it reconnects with backoff (2 s up to 1 minute). While it's
+     connected the poll drops to once a minute. Row-level security applies to Realtime too.
    Still to do:
-   - **Realtime updates** instead of the 20 s poll (a websocket client for Supabase Realtime,
-     or supabase-kt after a Kotlin upgrade).
    - **Invite links** that open the app need a website domain the owner controls (for Android
      App Links' assetlinks.json); Supabase won't serve web pages from its own domain.
    - Deleting another player's drawing from your picker only hides it until the next pull.

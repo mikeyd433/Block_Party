@@ -63,6 +63,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.kotlinx.coroutines.core)
+    // Websocket for live street updates (Supabase Realtime).
+    implementation(libs.okhttp)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
@@ -73,6 +75,7 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.junit)
+    testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(platform(libs.compose.bom))

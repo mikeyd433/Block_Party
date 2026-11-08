@@ -411,6 +411,17 @@ fun SharedStreetScreen(vm: GameViewModel, online: OnlineViewModel, streetId: Str
                 }
             }
             openError?.let { ErrorText(it) }
+            if (playing) {
+                Text(
+                    when {
+                        vm.syncProblem != null -> "Not syncing right now (${vm.syncProblem}). Changes are saved and go up when it's back."
+                        vm.liveConnected -> "Live: friends' changes show up within a second or two."
+                        else -> "Connecting for live updates… (changes still sync every 20 seconds)"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (vm.syncProblem != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                )
+            }
             Text(
                 "Buy a lot and run your shop next to your friends'. Your shops and drawings are saved to the street, " +
                     "and you'll see theirs. Your coins here are separate from your single-player street.",

@@ -11,6 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.blockparty.app.data.Backend
 import com.blockparty.app.data.SpriteStore
+import com.blockparty.app.data.StreetLive
 import com.blockparty.core.net.BackendException
 import com.blockparty.core.net.DrawingFiles
 import com.blockparty.core.net.RemoteStreet
@@ -59,6 +60,10 @@ private const val KEY_LAST_STREET = "last_shared_street"
 private const val SYNC_POLL_MS = 20_000L
 /** Pause after a change before syncing, so a burst of edits goes up together. */
 private const val SYNC_SETTLE_MS = 3_000L
+/** With live updates on, polling is just a fallback. */
+private const val SYNC_POLL_LIVE_MS = 60_000L
+/** Pause after another player's change before pulling (their edits often come in a burst). */
+private const val REMOTE_SETTLE_MS = 500L
 /** Every this many syncs, download the whole street rather than just what changed (~5 minutes). */
 private const val FULL_PULL_EVERY = 15
 
@@ -120,7 +125,14 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         private set
 
     private var syncJob: kotlinx.coroutines.Job? = null
+    /** The player changed something on the open shared street. */
     private val syncWanted = Channel<Unit>(Channel.CONFLATED)
+    /** Someone else changed something on it (live updates). */
+    private val remoteChanged = Channel<Unit>(Channel.CONFLATED)
+
+    /** The open shared street's live connection is up (changes arrive within a second or so). */
+    var liveConnected by mutableStateOf(false)
+        private set
 
     init {
         viewModelScope.launch {
@@ -156,6 +168,7 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         world = w
         sharedStreetId = if (w.isShared) w.street.id else null
         syncProblem = null
+        liveConnected = false
         crowd = StreetCrowd()
         crowdWarmedUp = false
         currentLotId = (w.street.lots.firstOrNull { it.isMine(w) } ?: w.street.lots.firstOrNull())?.id ?: WorldFactory.HOME_LOT_ID
@@ -269,6 +282,13 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
         syncJob?.cancel()
         val syncer = syncerFor(streetId)
         syncJob = viewModelScope.launch {
+            // Live updates: other players' changes wake the sync straight away.
+            val live = StreetLive(
+                backend.config, backend.auth, streetId,
+                onChange = { remoteChanged.trySend(Unit) },
+                onLive = { up -> viewModelScope.launch { liveConnected = up } },
+            )
+            live.start(this)
             var server: ServerStreet? = null
             var cycles = 0
             while (true) {
@@ -306,9 +326,15 @@ class GameViewModel(app: Application) : AndroidViewModel(app) {
                     syncProblem = "offline"
                     server = null
                 }
-                // Wait for a change (or the next poll), then a moment more so bursts go together.
-                kotlinx.coroutines.withTimeoutOrNull(SYNC_POLL_MS) { syncWanted.receive() }
-                kotlinx.coroutines.delay(SYNC_SETTLE_MS)
+                // Wait for a change here or on the street (or the next poll), then a moment more so
+                // bursts go together. With live updates on, polling is only a fallback.
+                val settle = kotlinx.coroutines.withTimeoutOrNull(if (liveConnected) SYNC_POLL_LIVE_MS else SYNC_POLL_MS) {
+                    kotlinx.coroutines.selects.select<Long> {
+                        syncWanted.onReceive { SYNC_SETTLE_MS }
+                        remoteChanged.onReceive { REMOTE_SETTLE_MS }
+                    }
+                } ?: 0L
+                kotlinx.coroutines.delay(settle)
             }
         }
     }
