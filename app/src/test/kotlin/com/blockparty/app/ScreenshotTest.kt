@@ -81,9 +81,15 @@ class ScreenshotTest {
         assertNotNull(vm.placeFurniture(lot.x + 4, lot.y + 1))
         assertNotNull(vm.placeFurniture(lot.x, lot.y + 4))
         val crate = DrawingExport.addDepth(SampleArt.crateFront(), 0.6f, Facing.LEFT)!!
+        val (crateBitmap, crop) = DrawingExport.cropAndScaleWithRect(crate.bitmap)!!
         vm.saveDrawing(
-            DrawingExport.cropAndScale(crate)!!,
-            template(SpriteKind.FURNITURE, "Cake crate").copy(alignToGrid = false), DrawPurpose.FURNITURE,
+            crateBitmap,
+            template(SpriteKind.FURNITURE, "Cake crate").copy(
+                alignToGrid = false,
+                groundX = (crate.ground.x - crop.left) / crop.width,
+                groundY = (crate.ground.y - crop.top) / crop.height,
+            ),
+            DrawPurpose.FURNITURE,
         )
         assertNotNull(vm.placeFurniture(lot.x + 4, lot.y + 4))
         vm.startPlacing(null)

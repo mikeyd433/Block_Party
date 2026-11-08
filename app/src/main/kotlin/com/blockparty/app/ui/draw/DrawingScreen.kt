@@ -177,11 +177,20 @@ fun DrawingScreen(vm: GameViewModel, world: WorldState, kind: SpriteKind, purpos
         if (saving) return
         saving = true
         scope.launch {
+            val ground = state.turnedGround
+            var groundX = 0.5f
+            var groundY = 1f
             val result: Bitmap? = withContext(Dispatchers.Default) {
                 val full = state.rasterize()
                 // Storefronts keep the whole canvas so they map exactly onto the wall.
-                if (kind == SpriteKind.FACADE) DrawingExport.scaleWithin(full, CANVAS_LONG_SIDE)
-                else DrawingExport.cropAndScale(full)
+                if (kind == SpriteKind.FACADE) return@withContext DrawingExport.scaleWithin(full, CANVAS_LONG_SIDE)
+                val (bitmap, crop) = DrawingExport.cropAndScaleWithRect(full) ?: return@withContext null
+                if (ground != null) {
+                    // A turned box rests on the middle of its base, not the bottom of the picture.
+                    groundX = ((ground.x - crop.left) / crop.width).coerceIn(0f, 1f)
+                    groundY = ((ground.y - crop.top) / crop.height).coerceIn(0f, 1f)
+                }
+                bitmap
             }
             saving = false
             if (result == null) {
@@ -199,6 +208,8 @@ fun DrawingScreen(vm: GameViewModel, world: WorldState, kind: SpriteKind, purpos
                 footprintH = footprint.second,
                 // A turned drawing is already isometric, so it stands as an upright cutout.
                 alignToGrid = alignToGrid && !state.isTurned,
+                groundX = groundX,
+                groundY = groundY,
                 showCredit = signed,
             )
             vm.saveDrawing(result, template, purpose)

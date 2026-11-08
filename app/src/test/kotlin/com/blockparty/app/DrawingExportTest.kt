@@ -77,7 +77,10 @@ class DrawingExportTest {
         for (y in 300..700 step 40) state.line(Offset(300f, y.toFloat()), Offset(700f, y.toFloat()))
         val flatStrokes = state.strokes.size
         val turned = DrawingExport.addDepth(state.rasterize(), 0.5f, Facing.LEFT)!!
-        val bounds = DrawingExport.cropAndScale(turned, maxDim = 1024)!!
+        val bounds = DrawingExport.cropAndScale(turned.bitmap, maxDim = 1024)!!
+        // The base centre sits inside the drawing, above its lowest point.
+        val (_, crop) = DrawingExport.cropAndScaleWithRect(turned.bitmap, maxDim = 1024)!!
+        assertTrue(turned.ground.y < crop.bottom - 20 && turned.ground.y > crop.top)
         // Wider than tall-ish: front runs at an angle and depth adds to both directions.
         assertTrue(bounds.width > 400)
 
@@ -92,7 +95,7 @@ class DrawingExportTest {
         val thicker = DrawingExport.addDepth(state.flatRender!!, 1f, Facing.LEFT)!!
         state.replaceTurned(thicker)
         assertEquals(1, state.strokes.size)
-        val thickBounds = DrawingExport.cropAndScale(thicker, maxDim = 1024)!!
+        val thickBounds = DrawingExport.cropAndScale(thicker.bitmap, maxDim = 1024)!!
         assertTrue(thickBounds.width > bounds.width)
 
         state.backToFlat()

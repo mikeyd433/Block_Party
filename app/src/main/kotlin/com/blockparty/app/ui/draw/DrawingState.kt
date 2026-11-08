@@ -21,6 +21,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import com.blockparty.core.art.ImageOps
+import com.blockparty.core.art.PixelRect
 import com.blockparty.core.art.StrokeOps
 import com.blockparty.core.geometry.DepthProjection
 import com.blockparty.core.geometry.Facing
@@ -82,6 +83,10 @@ class DrawingState(val width: Int, val height: Int) {
     var flatRender: Bitmap? = null
         private set
 
+    /** Centre of the turned box's base in canvas pixels; it's what rests on the floor. */
+    var turnedGround: Offset? = null
+        private set
+
     val isTurned: Boolean get() = baked != null
 
     val baseImage: Bitmap?
@@ -131,21 +136,25 @@ class DrawingState(val width: Int, val height: Int) {
         baked = null
         flatSnapshot = null
         flatRender = null
+        turnedGround = null
     }
 
     /** Replaces the flat drawing with its turned, extruded version and starts a fresh stroke layer. */
-    fun applyTurned(result: Bitmap, flat: Bitmap) {
+    fun applyTurned(result: DrawingExport.Turned, flat: Bitmap) {
         flatSnapshot = Snapshot(strokes.toList(), uploaded, uploadedCutout, removeBackground)
         flatRender = flat
-        baked = result
+        turnedGround = result.ground
+        baked = result.bitmap
         strokes.clear()
         redoStack.clear()
         current.clear()
     }
 
     /** Swaps in a re-extruded version (new thickness), keeping the detail strokes drawn on top. */
-    fun replaceTurned(result: Bitmap) {
-        if (baked != null) baked = result
+    fun replaceTurned(result: DrawingExport.Turned) {
+        if (baked == null) return
+        baked = result.bitmap
+        turnedGround = result.ground
     }
 
     /** Restores the flat drawing from before the turn, dropping anything drawn since. */
@@ -198,14 +207,20 @@ object DrawingExport {
      * Crops a rendered drawing to its content (with a little padding) and scales it down so
      * it's at most [maxDim] pixels. Returns null if nothing was drawn.
      */
-    fun cropAndScale(full: Bitmap, maxDim: Int = 512): Bitmap? {
+    fun cropAndScale(full: Bitmap, maxDim: Int = 512): Bitmap? = cropAndScaleWithRect(full, maxDim)?.first
+
+    /** Like [cropAndScale], also returning the crop rectangle in the original's pixels. */
+    fun cropAndScaleWithRect(full: Bitmap, maxDim: Int = 512): Pair<Bitmap, PixelRect>? {
         val pixels = IntArray(full.width * full.height)
         full.getPixels(pixels, 0, full.width, 0, 0, full.width, full.height)
         val bounds = ImageOps.contentBounds(pixels, full.width, full.height) ?: return null
         val padded = ImageOps.pad(bounds, 4, full.width, full.height)
         val cropped = Bitmap.createBitmap(full, padded.left, padded.top, padded.width, padded.height)
-        return scaleWithin(cropped, maxDim)
+        return scaleWithin(cropped, maxDim) to padded
     }
+
+    /** A turned drawing plus where its base centre is, in canvas pixels. */
+    class Turned(val bitmap: Bitmap, val ground: Offset)
 
     fun scaleWithin(bitmap: Bitmap, maxDim: Int): Bitmap {
         val (w, h) = ImageOps.fitWithin(bitmap.width, bitmap.height, maxDim)
@@ -235,7 +250,7 @@ object DrawingExport {
      * @param flat the full-canvas flat drawing.
      * @param depthFraction depth as a fraction of the drawing's width.
      */
-    fun addDepth(flat: Bitmap, depthFraction: Float, facing: Facing): Bitmap? {
+    fun addDepth(flat: Bitmap, depthFraction: Float, facing: Facing): Turned? {
         val front = cropAndScale(flat, maxDim = max(flat.width, flat.height)) ?: return null
         val layout = DepthProjection.layout(
             front.width.toFloat(), front.height.toFloat(), depthFraction, facing,
@@ -264,7 +279,8 @@ object DrawingExport {
         }
         matrix.setValues(floatArrayOf(m.a, m.c, m.tx, m.b, m.d, m.ty, 0f, 0f, 1f))
         canvas.drawBitmap(front, matrix, Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
-        return out
+        val ground = layout.groundCenter(front.width.toFloat(), front.height.toFloat())
+        return Turned(out, Offset(ground.x, ground.y))
     }
 
     const val MIN_DEPTH = 0.1f

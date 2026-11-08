@@ -91,12 +91,15 @@ class CutoutItem(
     val shadow: DrawScope.(Float) -> Unit,
     /** Set when the drawing is leaned into the grid instead of standing upright. */
     val panel: GridPanel.Panel? = null,
+    /** Point of the image (fractions) that rests on [foot]. */
+    val anchorX: Float = 0.5f,
+    val anchorY: Float = 1f,
 ) {
     /** Screen area covered before animation, for hit testing. */
     val bounds: Rect
         get() = panel?.let { p ->
             Rect(p.corners.minOf { it.x }, p.corners.minOf { it.y }, p.corners.maxOf { it.x }, p.corners.maxOf { it.y })
-        } ?: cutoutBounds(foot, size)
+        } ?: cutoutBounds(foot, size, anchorX, anchorY, mirrored)
 }
 
 /** Cutouts inside the open (interior) lot, sorted back to front. */
@@ -129,6 +132,8 @@ fun StreetScene.interiorCutouts(): List<CutoutItem> {
             depth = rect.x + rect.w / 2f + rect.y + rect.h / 2f,
             shadow = footprintShadow(diamond),
             panel = panel,
+            anchorX = sprite.groundX,
+            anchorY = sprite.groundY,
         )
     }
     val keeper = shopkeeper
@@ -323,7 +328,10 @@ private fun DrawScope.drawInterior(scene: StreetScene, lot: Lot) {
     for (item in scene.interiorCutouts()) {
         val panel = item.panel
         if (panel != null) drawPanelCutout(item.image, panel, item.pose, item.shadow)
-        else drawCutout(item.image, item.foot, item.size, item.pose, item.mirrored, item.shadow)
+        else drawCutout(
+            item.image, item.foot, item.size, item.pose, item.mirrored, item.shadow,
+            anchorX = item.anchorX, anchorY = item.anchorY,
+        )
         if (item.id == scene.selectedId && item.id == SHOPKEEPER_ID) {
             drawCircle(Paper.Accent, radius = 6f, center = item.foot.copy(y = item.foot.y - item.size.height - 14f))
         }

@@ -13,7 +13,13 @@ enum class Facing { LEFT, RIGHT }
  * @property front maps the flat drawing's pixels onto its front face in the canvas.
  * @property depth offset (canvas pixels) from the front face to the back face.
  */
-data class DepthLayout(val front: Affine2D, val depth: Vec2)
+data class DepthLayout(val front: Affine2D, val depth: Vec2) {
+    /** Centre of the box's base (the part touching the floor) for a front image of the given size. */
+    fun groundCenter(imageW: Float, imageH: Float): Vec2 {
+        val frontBottomMid = front.apply(Vec2(imageW / 2f, imageH))
+        return frontBottomMid + depth * 0.5f
+    }
+}
 
 /**
  * Turns a flat front view into an isometric box: the front stays readable left-to-right, and the

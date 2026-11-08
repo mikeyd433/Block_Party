@@ -25,13 +25,20 @@ fun polygonPath(points: List<Vec2>): Path = Path().apply {
     close()
 }
 
-/** Where a standing cutout's image sits (before animation), for hit testing. */
-fun cutoutBounds(foot: Offset, size: Size) =
-    Rect(foot.x - size.width / 2f, foot.y - size.height, foot.x + size.width / 2f, foot.y)
+/**
+ * Where a standing cutout's image sits (before animation), for hit testing. ([anchorX], [anchorY])
+ * is the point of the image, as fractions, that rests on [foot].
+ */
+fun cutoutBounds(foot: Offset, size: Size, anchorX: Float = 0.5f, anchorY: Float = 1f, mirrored: Boolean = false): Rect {
+    val ax = if (mirrored) 1f - anchorX else anchorX
+    val left = foot.x - size.width * ax
+    val top = foot.y - size.height * anchorY
+    return Rect(left, top, left + size.width, top + size.height)
+}
 
 /**
  * Draws a drawing exactly as drawn, standing upright like a paper cutout with its
- * bottom-center on [foot]. The [pose] adds procedural squash/stretch, sway and lift.
+ * anchor point (bottom-center by default) on [foot]. The [pose] adds procedural squash/stretch, sway and lift.
  *
  * @param shadow ground shadow under the cutout (drawn before the cutout, shrinks while lifted).
  */
@@ -43,6 +50,8 @@ fun DrawScope.drawCutout(
     mirrored: Boolean,
     shadow: (DrawScope.(liftFraction: Float) -> Unit)? = null,
     alpha: Float = 1f,
+    anchorX: Float = 0.5f,
+    anchorY: Float = 1f,
 ) {
     val liftPx = pose.lift * size.height
     shadow?.invoke(this, min(1f, pose.lift * 3f))
@@ -53,7 +62,7 @@ fun DrawScope.drawCutout(
                 val h = size.height.roundToInt().coerceAtLeast(1)
                 drawImage(
                     image = image,
-                    dstOffset = IntOffset(-w / 2, -h),
+                    dstOffset = IntOffset(-(w * anchorX).roundToInt(), -(h * anchorY).roundToInt()),
                     dstSize = IntSize(w, h),
                     alpha = alpha,
                     filterQuality = FilterQuality.High,

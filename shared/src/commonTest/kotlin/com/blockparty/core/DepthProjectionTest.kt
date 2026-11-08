@@ -46,6 +46,18 @@ class DepthProjectionTest {
     }
 
     @Test
+    fun groundCenterIsTheMiddleOfTheBase() {
+        val l = DepthProjection.layout(200f, 100f, 0.5f, Facing.LEFT, 1024f, 1024f)
+        val g = l.groundCenter(200f, 100f)
+        val p0 = l.front.apply(Vec2(0f, 100f))
+        val p1 = l.front.apply(Vec2(200f, 100f))
+        val expected = (p0 + p1 + (p0 + l.depth) + (p1 + l.depth)) * 0.25f
+        assertTrue(abs(g.x - expected.x) < 1e-3f && abs(g.y - expected.y) < 1e-3f)
+        // The base centre sits above the lowest corner, which is what made boxes float.
+        assertTrue(g.y < maxOf(p0.y, p1.y))
+    }
+
+    @Test
     fun neverEnlargesSmallDrawings() {
         val l = DepthProjection.layout(50f, 50f, 0.5f, Facing.LEFT, 1024f, 1024f)
         assertTrue(abs(l.front.d - 1f) < 1e-6f)

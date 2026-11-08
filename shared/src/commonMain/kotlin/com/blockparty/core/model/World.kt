@@ -32,6 +32,12 @@ data class SpriteAsset(
      * along one floor axis (true), or stand it upright facing the camera (false).
      */
     val alignToGrid: Boolean = true,
+    /**
+     * Point of the image (fractions of width/height) that rests on the centre of the footprint.
+     * Bottom-centre for a straight-on drawing; the middle of the base for one turned into 3D.
+     */
+    val groundX: Float = 0.5f,
+    val groundY: Float = 1f,
     val artistName: String = "",
     /** Artist's choice: show their name when the drawing is tapped, or stay anonymous. */
     val showCredit: Boolean = true,
